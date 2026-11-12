@@ -21,6 +21,7 @@ class PlaybackService : MediaSessionService() {
         val player = ExoPlayer.Builder(this).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
             setHandleAudioBecomingNoisy(true)
+            setPlaybackSpeed((Repository(applicationContext).long("defaultSpeed", 100) / 100f).coerceIn(.5f, 3f))
         }
         val repo = Repository(applicationContext)
         player.addListener(object : Player.Listener {

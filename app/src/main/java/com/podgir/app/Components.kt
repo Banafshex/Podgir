@@ -118,3 +118,39 @@ import kotlinx.coroutines.delay
         }
     }
 }
+
+@Composable fun OptionSetting(title: String, value: String, options: List<String>, onSelect: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Surface(onClick = { expanded = true }, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Bold); Text(value, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+            Box { Icon(Icons.Default.ExpandMore, null); DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) { options.forEachIndexed { index, option -> DropdownMenuItem(text = { Text(option) }, onClick = { expanded = false; onSelect(index) }, trailingIcon = { if (option == value) Icon(Icons.Default.Check, null) }) } } }
+        }
+    }
+}
+
+@Composable fun SavedEntry(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    Surface(onClick = onClick, color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(20.dp)) {
+        Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp)); Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Bold); Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Icon(Icons.Default.ChevronRight, null)
+        }
+    }
+}
+
+@Composable fun BookmarkRow(bookmark: Bookmark, fa: Boolean, onPlay: () -> Unit, onDelete: () -> Unit) {
+    val seconds = bookmark.position / 1000
+    val stamp = if (seconds >= 3600) "%d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60) else "%d:%02d".format(seconds / 60, seconds % 60)
+    Surface(onClick = onPlay, color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(18.dp)) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(model = bookmark.episode.image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(54.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
+            Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) {
+                Text(bookmark.episode.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                Text(stamp, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                if (bookmark.note.isNotBlank()) Text(bookmark.note, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            IconButton(onClick = onDelete) { Icon(Icons.Default.DeleteOutline, if (fa) "حذف نشان" else "Delete bookmark") }
+        }
+    }
+}

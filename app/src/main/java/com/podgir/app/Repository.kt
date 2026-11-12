@@ -22,6 +22,11 @@ data class Episode(val title: String, val description: String, val audio: String
     companion object { fun from(j: JSONObject) = Episode(j.optString("title"), j.optString("description"), j.optString("audio"), j.optString("date"), j.optString("image"), j.optString("podcast")) }
 }
 
+data class Bookmark(val id: String, val episode: Episode, val position: Long, val note: String) {
+    fun json() = JSONObject().put("id", id).put("episode", episode.json()).put("position", position).put("note", note)
+    companion object { fun from(j: JSONObject) = Bookmark(j.getString("id"), Episode.from(j.getJSONObject("episode")), j.optLong("position"), j.optString("note")) }
+}
+
 class Repository(private val context: Context) {
     private val prefs = context.getSharedPreferences("podgir", Context.MODE_PRIVATE)
     fun long(key: String, default: Long = 0) = prefs.getLong(key, default)
@@ -40,6 +45,11 @@ class Repository(private val context: Context) {
     private fun array(key: String): JSONArray = try { JSONArray(prefs.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
     fun subscriptions(): List<Podcast> { val a = array("subscriptions"); return (0 until a.length()).mapNotNull { runCatching { Podcast.from(a.getJSONObject(it)) }.getOrNull() } }
     fun toggle(p: Podcast) { val list = subscriptions().toMutableList(); if (list.any { it.feed == p.feed }) list.removeAll { it.feed == p.feed } else list.add(p); prefs.edit().putString("subscriptions", JSONArray(list.map { it.json() }).toString()).apply() }
+    fun favorites(): List<Episode> { val a = array("favorites"); return (0 until a.length()).mapNotNull { runCatching { Episode.from(a.getJSONObject(it)) }.getOrNull() } }
+    fun toggleFavorite(e: Episode) { val all = favorites(); val updated = if (all.any { it.audio == e.audio }) all.filterNot { it.audio == e.audio } else listOf(e) + all; prefs.edit().putString("favorites", JSONArray(updated.map { it.json() }).toString()).apply() }
+    fun bookmarks(): List<Bookmark> { val a = array("bookmarks"); return (0 until a.length()).mapNotNull { runCatching { Bookmark.from(a.getJSONObject(it)) }.getOrNull() } }
+    fun addBookmark(e: Episode, position: Long, note: String) { val b = Bookmark(java.util.UUID.randomUUID().toString(), e, position.coerceAtLeast(0), note.trim()); prefs.edit().putString("bookmarks", JSONArray((listOf(b) + bookmarks()).map { it.json() }).toString()).apply() }
+    fun deleteBookmark(id: String) { prefs.edit().putString("bookmarks", JSONArray(bookmarks().filterNot { it.id == id }.map { it.json() }).toString()).apply() }
     fun downloads(): List<Episode> { val a = array("downloads"); return (0 until a.length()).mapNotNull { runCatching { Episode.from(a.getJSONObject(it)) }.getOrNull() } }
     fun queue(): List<Episode> { val a = array("queue"); return (0 until a.length()).mapNotNull { runCatching { Episode.from(a.getJSONObject(it)) }.getOrNull() } }
     fun saveQueue(episodes: List<Episode>) { prefs.edit().putString("queue", JSONArray(episodes.map { it.json() }).toString()).apply() }

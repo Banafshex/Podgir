@@ -41,8 +41,12 @@ private fun clock(ms: Long): String { val s = TimeUnit.MILLISECONDS.toSeconds(ms
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long, duration: Long, speed: Float, sleepMinutes: Int, queue: List<Episode>, onClose: () -> Unit, onToggle: () -> Unit, onSeek: (Long) -> Unit, onSpeed: () -> Unit, onSleep: () -> Unit, onPrevious: () -> Unit, onSkip: () -> Unit, onRemove: (Episode) -> Unit, onMove: (Int, Int) -> Unit) {
+fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long, duration: Long, speed: Float, sleepMinutes: Int, queue: List<Episode>, onClose: () -> Unit, onToggle: () -> Unit, onSeek: (Long) -> Unit, onSpeed: () -> Unit, onSleep: () -> Unit, rewindSeconds: Int, forwardSeconds: Int, favorite: Boolean, downloadStatus: Int, onFavorite: () -> Unit, onDownload: () -> Unit, onBookmark: (Long, String) -> Unit, onShare: () -> Unit, onPrevious: () -> Unit, onSkip: () -> Unit, onRemove: (Episode) -> Unit, onMove: (Int, Int) -> Unit) {
     var showQueue by remember { mutableStateOf(false) }
+    var showBookmark by remember { mutableStateOf(false) }
+    var bookmarkPosition by remember { mutableLongStateOf(0L) }
+    var note by remember { mutableStateOf("") }
+
     val scale by animateFloatAsState(if (playing) 1f else .92f, animationSpec = spring(dampingRatio = .75f, stiffness = Spring.StiffnessLow), label = "artwork")
     val pulse = rememberInfiniteTransition(label = "glow")
     val glow by pulse.animateFloat(.35f, .65f, infiniteRepeatable(tween(2500), RepeatMode.Reverse), label = "glow alpha")
@@ -100,9 +104,9 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                                 Spacer(Modifier.height(12.dp))
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
                                     IconButton(onClick = onPrevious) { Icon(Icons.Default.SkipPrevious, if (fa) "قسمت قبلی" else "Previous episode", tint = Color.White, modifier = Modifier.size(30.dp)) }
-                                    IconButton(onClick = { onSeek((position - 15000).coerceAtLeast(0)) }) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Replay, if (fa) "۱۵ ثانیه عقب" else "Back 15 seconds", tint = Color.White, modifier = Modifier.size(32.dp)); Text("15", color = Color.White, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp) } }
+                                    IconButton(onClick = { onSeek((position - rewindSeconds * 1000L).coerceAtLeast(0)) }) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Replay, if (fa) "$rewindSeconds ثانیه عقب" else "Back $rewindSeconds seconds", tint = Color.White, modifier = Modifier.size(32.dp)); Text("$rewindSeconds", color = Color.White, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp) } }
                                     Surface(onClick = onToggle, color = Lime, shape = CircleShape, modifier = Modifier.size(64.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) { if (fa) "توقف" else "Pause" } else { if (fa) "پخش" else "Play" }, tint = Ink, modifier = Modifier.size(36.dp)) } }
-                                    IconButton(onClick = { onSeek(position + 30000) }) { Icon(Icons.Default.Forward30, if (fa) "۳۰ ثانیه جلو" else "Forward 30 seconds", tint = Color.White, modifier = Modifier.size(32.dp)) }
+                                    IconButton(onClick = { onSeek(position + forwardSeconds * 1000L) }) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Forward, if (fa) "$forwardSeconds ثانیه جلو" else "Forward $forwardSeconds seconds", tint = Color.White, modifier = Modifier.size(32.dp)); Text("$forwardSeconds", color = Color.White, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp) } }
                                     IconButton(onClick = onSkip, enabled = queue.isNotEmpty()) { Icon(Icons.Default.SkipNext, if (fa) "قسمت بعدی" else "Next episode", tint = if (queue.isEmpty()) Color.White.copy(.3f) else Color.White, modifier = Modifier.size(30.dp)) }
                                 }
                             }
@@ -112,6 +116,12 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                                 TextButton(onClick = onSleep) { Icon(Icons.Default.Bedtime, null, tint = Color.White.copy(.7f), modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(if (sleepMinutes == 0) { if (fa) "تایمر خواب" else "Sleep timer" } else "${sleepMinutes} min", color = Color.White.copy(.8f)) }
                                 IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, if (fa) "صف پخش" else "Queue", tint = Color.White) }
                             }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = onFavorite) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, if (fa) "علاقه‌مندی" else "Favorite", tint = if (favorite) Lime else Color.White.copy(.8f)) }
+                                IconButton(onClick = { bookmarkPosition = position; note = ""; showBookmark = true }) { Icon(Icons.Default.BookmarkAdd, if (fa) "ذخیره لحظه" else "Save moment", tint = Color.White.copy(.8f)) }
+                                IconButton(onClick = onDownload, enabled = downloadStatus == 0 || downloadStatus == android.app.DownloadManager.STATUS_FAILED) { Icon(if (downloadStatus == android.app.DownloadManager.STATUS_SUCCESSFUL) Icons.Default.CheckCircle else Icons.Default.Download, if (fa) "دانلود" else "Download", tint = if (downloadStatus == android.app.DownloadManager.STATUS_SUCCESSFUL) Lime else Color.White.copy(.8f)) }
+                                IconButton(onClick = onShare) { Icon(Icons.Default.Share, if (fa) "اشتراک‌گذاری فایل صوتی" else "Share audio link", tint = Color.White.copy(.8f)) }
+                            }
                             Spacer(Modifier.height(24.dp))
                         }
                     }
@@ -119,6 +129,7 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
             }
         }
     }
+    if (showBookmark) AlertDialog(onDismissRequest = { showBookmark = false }, title = { Text(if (fa) "ذخیرهٔ لحظه" else "Save moment") }, text = { Column { Text(clock(bookmarkPosition)); Spacer(Modifier.height(12.dp)); OutlinedTextField(value = note, onValueChange = { if (it.length <= 500) note = it }, label = { Text(if (fa) "یادداشت (اختیاری)" else "Note (optional)") }, maxLines = 4) } }, confirmButton = { TextButton(onClick = { onBookmark(bookmarkPosition, note); note = ""; showBookmark = false }) { Text(if (fa) "ذخیره" else "Save") } }, dismissButton = { TextButton(onClick = { showBookmark = false }) { Text(if (fa) "انصراف" else "Cancel") } })
 }
 
 @Composable private fun QueueRow(e: Episode, fa: Boolean, current: Boolean = false, onRemove: (() -> Unit)? = null, onUp: (() -> Unit)? = null, onDown: (() -> Unit)? = null) {
