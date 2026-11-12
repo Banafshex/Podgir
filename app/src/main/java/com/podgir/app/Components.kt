@@ -89,3 +89,32 @@ import kotlinx.coroutines.delay
         }
     } }
 }
+
+@Composable fun HistoryEntry(fa: Boolean, onClick: () -> Unit) {
+    Surface(onClick = onClick, color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(20.dp)) {
+        Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.History, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp)); Spacer(Modifier.width(16.dp))
+            Text(if (fa) "تاریخچه شنیدن" else "Listening history", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+            Icon(Icons.Default.ChevronRight, null)
+        }
+    }
+}
+
+@Composable fun HistoryEpisode(e: Episode, repo: Repository, fa: Boolean, onPlay: () -> Unit) {
+    val duration = repo.duration(e.audio)
+    val progress = if (duration > 0) (repo.position(e.audio).toFloat() / duration).coerceIn(0f, 1f) else 0f
+    Surface(onClick = onPlay, color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(18.dp)) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(model = e.image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(58.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(e.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                Text(e.podcast, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) { LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(3.dp).clip(CircleShape)) }
+            }
+            Spacer(Modifier.width(8.dp)); Text(if (duration > 0) "${(progress * 100).toInt()}%" else if (fa) "ادامه" else "Resume", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Icon(Icons.Default.PlayArrow, if (fa) "پخش" else "Play", tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}

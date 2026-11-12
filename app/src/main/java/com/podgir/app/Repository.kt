@@ -24,10 +24,17 @@ data class Episode(val title: String, val description: String, val audio: String
 
 class Repository(private val context: Context) {
     private val prefs = context.getSharedPreferences("podgir", Context.MODE_PRIVATE)
+    fun long(key: String, default: Long = 0) = prefs.getLong(key, default)
+    fun setLong(key: String, value: Long) { prefs.edit().putLong(key, value).apply() }
     fun boolean(key: String, default: Boolean) = prefs.getBoolean(key, default)
     fun setBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
     fun lastEpisode(): Episode? = runCatching { Episode.from(JSONObject(prefs.getString("lastEpisode", null) ?: return null)) }.getOrNull()
     fun saveLastEpisode(e: Episode) { prefs.edit().putString("lastEpisode", e.json().toString()).apply() }
+    fun history(): List<Episode> { val a = array("history"); return (0 until a.length()).mapNotNull { runCatching { Episode.from(a.getJSONObject(it)) }.getOrNull() } }
+    fun record(e: Episode) { prefs.edit().putString("history", JSONArray((listOf(e) + history().filterNot { it.audio == e.audio }).take(100).map { it.json() }).toString()).apply() }
+    fun clearHistory() { history().forEach { prefs.edit().remove("pos:${it.audio}").remove("duration:${it.audio}").apply() }; prefs.edit().remove("history").apply() }
+    fun duration(url: String) = prefs.getLong("duration:$url", 0)
+    fun saveDuration(url: String, value: Long) { if (value > 0) prefs.edit().putLong("duration:$url", value).apply() }
     fun position(url: String) = prefs.getLong("pos:$url", 0)
     fun savePosition(url: String, pos: Long) { prefs.edit().putLong("pos:$url", pos).apply() }
     private fun array(key: String): JSONArray = try { JSONArray(prefs.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
@@ -54,6 +61,7 @@ class Repository(private val context: Context) {
         val request = DownloadManager.Request(Uri.parse(e.audio)).setTitle(e.title)
             .setDescription(e.podcast).setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_PODCASTS, "${System.currentTimeMillis()}-${e.audio.hashCode()}.audio")
+        if (boolean("wifiOnly", false)) request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
         val id = (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
         prefs.edit().putLong("download:${e.audio}", id).putString("downloads", JSONArray((downloads() + e).map { it.json() }).toString()).apply()
     }

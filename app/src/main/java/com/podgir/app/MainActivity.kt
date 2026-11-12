@@ -89,6 +89,8 @@ fun PodgirApp(player: MediaController?) {
             var error by remember { mutableStateOf("") }
             var subscriptions by remember { mutableStateOf(repo.subscriptions()) }
             var downloads by remember { mutableStateOf(repo.downloads()) }
+            var history by remember { mutableStateOf(repo.history()) }
+            var historyPage by remember { mutableStateOf(false) }
             var queue by remember { mutableStateOf(repo.queue()) }
             var downloadsPage by remember { mutableStateOf(false) }
             var current by remember { mutableStateOf(repo.lastEpisode()) }
@@ -97,11 +99,11 @@ fun PodgirApp(player: MediaController?) {
             var duration by remember { mutableLongStateOf(0L) }
             var speed by remember { mutableFloatStateOf(1f) }
             var expanded by remember { mutableStateOf(false) }
-            var sleepMinutes by remember { mutableIntStateOf(0) }
-            var sleepAt by remember { mutableLongStateOf(0L) }
+            var sleepMinutes by remember { mutableIntStateOf(if (repo.long("sleepDeadline") > System.currentTimeMillis()) ((repo.long("sleepDeadline") - System.currentTimeMillis()) / 60000L).toInt().coerceAtLeast(1) else 0) }
+            var wifiOnly by remember { mutableStateOf(repo.boolean("wifiOnly", false)) }
             val scope = rememberCoroutineScope()
             var request by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-            BackHandler(enabled = selected != null || expanded || downloadsPage) { if (expanded) expanded = false else if (downloadsPage) downloadsPage = false else { selected = null; error = "" } }
+            BackHandler(enabled = selected != null || expanded || downloadsPage || historyPage) { if (expanded) expanded = false else if (historyPage) historyPage = false else if (downloadsPage) downloadsPage = false else { selected = null; error = "" } }
             fun search(q: String) { request?.cancel(); request = scope.launch { loading = true; error = ""; try { results = repo.search(q) } catch (ex: Exception) { if (ex is kotlinx.coroutines.CancellationException) throw ex; error = t("دریافت اطلاعات ممکن نشد. اتصال اینترنت را بررسی کنید.", "Could not load podcasts. Check your connection.") }; loading = false } }
             fun open(p: Podcast) { request?.cancel(); selected = p; episodes = emptyList(); request = scope.launch { loading = true; error = ""; try { episodes = repo.episodes(p) } catch (ex: Exception) { if (ex is kotlinx.coroutines.CancellationException) throw ex; error = t("دریافت قسمت‌ها ممکن نشد.", "Could not load episodes.") }; loading = false } }
             fun item(e: Episode): MediaItem {
@@ -120,7 +122,7 @@ fun PodgirApp(player: MediaController?) {
                 if (player == null) return
                 current?.let { repo.savePosition(it.audio, player.currentPosition) }
                 queue = queue.filterNot { it.audio == e.audio }; repo.saveQueue(queue)
-                current = e; repo.saveLastEpisode(e)
+                current = e; repo.saveLastEpisode(e); repo.record(e); history = repo.history()
                 player.setMediaItems(listOf(item(e)) + queue.map { item(it) })
                 player.prepare(); player.seekTo(repo.position(e.audio)); player.play()
             }
@@ -137,10 +139,10 @@ fun PodgirApp(player: MediaController?) {
                     if (player != null) {
                         val active = repo.lastEpisode()
                         if (active != null && player.currentMediaItem?.mediaId == active.audio && active.audio != current?.audio) current = active
-                        queue = repo.queue()
+                        queue = repo.queue(); history = repo.history()
                         playing = player.isPlaying; position = player.currentPosition.coerceAtLeast(0); duration = player.duration.coerceAtLeast(0)
-                        current?.let { if (position > 0) repo.savePosition(it.audio, position) }
-                        if (sleepAt > 0 && System.currentTimeMillis() >= sleepAt) { player.pause(); sleepAt = 0; sleepMinutes = 0 }
+                        current?.let { if (position > 0) { repo.savePosition(it.audio, position); repo.saveDuration(it.audio, duration) } }
+                        if (repo.long("sleepDeadline") == 0L) sleepMinutes = 0
                     }
                     delay(1000)
                 }
@@ -153,13 +155,17 @@ fun PodgirApp(player: MediaController?) {
                     NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                         val labels = listOf(t("خانه", "Home"), t("جست‌وجو", "Search"), t("کتابخانه", "Library"), t("تنظیمات", "Settings"))
                         val icons = listOf(Icons.Default.Home, Icons.Default.Search, Icons.Default.LibraryMusic, Icons.Default.Settings)
-                        labels.forEachIndexed { i, label -> NavigationBarItem(selected = tab == i && selected == null, onClick = { tab = i; selected = null; downloadsPage = false; error = "" }, icon = { Icon(icons[i], label) }, label = { Text(label, fontSize = 10.sp) }) }
+                        labels.forEachIndexed { i, label -> NavigationBarItem(selected = tab == i && selected == null, onClick = { tab = i; selected = null; downloadsPage = false; historyPage = false; error = "" }, icon = { Icon(icons[i], label) }, label = { Text(label, fontSize = 10.sp) }) }
                     }
                 }
             }) { padding ->
                 LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 24.dp), modifier = Modifier.fillMaxSize().padding(padding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     val detail = selected
-                    if (downloadsPage) {
+                    if (historyPage) {
+                        item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { historyPage = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("بازگشت", "Back")) }; Text(t("تاریخچه شنیدن", "Listening history"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); TextButton(onClick = { repo.clearHistory(); history = emptyList() }) { Text(t("پاک‌کردن", "Clear")) } } }
+                        if (history.isEmpty()) item { Message(t("تاریخچه‌ای وجود ندارد.", "No listening history yet.")) }
+                        items(history, key = { it.audio }) { e -> HistoryEpisode(e, repo, fa) { play(e) } }
+                    } else if (downloadsPage) {
                         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { downloadsPage = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("بازگشت", "Back")) }; Column { Text(t("مدیریت دانلود", "Download manager"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold); Text(t("فایل‌های شما روی همین دستگاه", "Your files on this device"), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } }
                         if (downloads.isEmpty()) item { Message(t("هنوز چیزی دانلود نکرده‌اید.", "No downloads yet.")) }
                         items(downloads, key = { it.audio }) { e -> DownloadCard(e, fa, repo, onPlay = { play(e) }, onRemove = { repo.removeDownload(e); downloads = repo.downloads() }, onRetry = { runCatching { repo.download(e) }.onFailure { error = t("دانلود شروع نشد.", "Could not start download.") }; downloads = repo.downloads() }) }
@@ -176,6 +182,10 @@ fun PodgirApp(player: MediaController?) {
                         0 -> {
                             item { Header(fa) }
                             item { Hero(fa, onClick = { tab = 1 }) }
+                            if (history.isNotEmpty()) {
+                                item { SectionTitle(t("ادامه شنیدن", "Continue listening"), "") }
+                                items(history.take(3), key = { "history:" + it.audio }) { e -> HistoryEpisode(e, repo, fa) { play(e) } }
+                            }
                             item { SectionTitle(t("برای شروع گوش دادن", "Find your next listen"), t("فارسی", "Persian")) }
                             item { Text(t("چند پیشنهاد برای کشف دنیای پادکست‌های فارسی", "Explore a selection of Persian podcasts"), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium) }
                             if (loading) item { Loading() }
@@ -200,11 +210,13 @@ fun PodgirApp(player: MediaController?) {
                             if (subscriptions.isEmpty()) item { Message(t("هنوز پادکستی را دنبال نکرده‌اید. از بخش جست‌وجو شروع کنید.", "You haven't followed any podcasts yet. Start exploring.")) }
                             items(subscriptions, key = { it.feed }) { p -> PodcastRow(p) { open(p) } }
                             item { DownloadEntry(fa, downloads.size) { downloadsPage = true } }
+                            item { HistoryEntry(fa) { historyPage = true } }
                         }
                         else -> {
                             item { Text(t("تنظیمات", "Settings"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold); Text(t("پادگیر را برای خودت بساز", "Make Podgir yours"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             item { SettingRow(t("حالت شب", "Dark mode"), t("آرام برای چشم‌ها", "Easy on the eyes"), dark) { dark = it; repo.setBoolean("dark", it) } }
                             item { LanguageSetting(fa) { fa = it; repo.setBoolean("fa", it) } }
+                            item { SettingRow(t("دانلود فقط با وای‌فای", "Downloads on Wi-Fi only"), t("برای دانلودهای جدید", "For new downloads"), wifiOnly) { wifiOnly = it; repo.setBoolean("wifiOnly", it) } }
                             item { Message(t("پادگیر رایگان است و به حساب کاربری نیاز ندارد. اشتراک‌ها و دانلودها روی همین دستگاه نگهداری می‌شوند.", "Podgir is free and requires no account. Your follows and downloads stay on this device.")) }
                         }
                     }
@@ -214,8 +226,9 @@ fun PodgirApp(player: MediaController?) {
                 episode = current!!, fa = fa, playing = playing, position = position, duration = duration, speed = speed, sleepMinutes = sleepMinutes, queue = queue,
                 onClose = { expanded = false }, onToggle = { if (playing) player?.pause() else player?.play() },
                 onSeek = { player?.seekTo(it.coerceIn(0L, if (duration > 0) duration else Long.MAX_VALUE)); position = it },
-                onSpeed = { speed = when (speed) { 1f -> 1.25f; 1.25f -> 1.5f; 1.5f -> 2f; else -> 1f }; player?.setPlaybackSpeed(speed) },
-                onSleep = { sleepMinutes = when (sleepMinutes) { 0 -> 15; 15 -> 30; 30 -> 60; else -> 0 }; sleepAt = if (sleepMinutes == 0) 0 else System.currentTimeMillis() + sleepMinutes * 60000L },
+                onSpeed = { speed = if (speed >= 3f) .5f else speed + .25f; player?.setPlaybackSpeed(speed) },
+                onSleep = { sleepMinutes = when (sleepMinutes) { 0 -> 15; 15 -> 30; 30 -> 60; else -> 0 }; val deadline = if (sleepMinutes == 0) 0L else System.currentTimeMillis() + sleepMinutes * 60000L; repo.setLong("sleepDeadline", deadline); context.startService(android.content.Intent(context, PlaybackService::class.java).setAction("com.podgir.app.SLEEP_TIMER").putExtra("deadline", deadline)) },
+                onPrevious = { if (player?.hasPreviousMediaItem() == true) player.seekToPreviousMediaItem() else player?.seekTo(0) },
                 onSkip = { if (player?.hasNextMediaItem() == true) { player.seekToNextMediaItem(); player.play() } },
                 onRemove = { e -> setQueue(queue.filterNot { it.audio == e.audio }) },
                 onMove = { from, to -> val list = queue.toMutableList(); val entry = list.removeAt(from); list.add(to, entry); setQueue(list) }

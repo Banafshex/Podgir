@@ -4,6 +4,8 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -37,13 +39,14 @@ private val Lime = Color(0xFFD1F36B)
 private val Ink = Color(0xFF111118)
 private fun clock(ms: Long): String { val s = TimeUnit.MILLISECONDS.toSeconds(ms.coerceAtLeast(0)); return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s % 3600 / 60, s % 60) else "%d:%02d".format(s / 60, s % 60) }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long, duration: Long, speed: Float, sleepMinutes: Int, queue: List<Episode>, onClose: () -> Unit, onToggle: () -> Unit, onSeek: (Long) -> Unit, onSpeed: () -> Unit, onSleep: () -> Unit, onSkip: () -> Unit, onRemove: (Episode) -> Unit, onMove: (Int, Int) -> Unit) {
+fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long, duration: Long, speed: Float, sleepMinutes: Int, queue: List<Episode>, onClose: () -> Unit, onToggle: () -> Unit, onSeek: (Long) -> Unit, onSpeed: () -> Unit, onSleep: () -> Unit, onPrevious: () -> Unit, onSkip: () -> Unit, onRemove: (Episode) -> Unit, onMove: (Int, Int) -> Unit) {
     var showQueue by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (playing) 1f else .92f, animationSpec = spring(dampingRatio = .75f, stiffness = Spring.StiffnessLow), label = "artwork")
     val pulse = rememberInfiniteTransition(label = "glow")
     val glow by pulse.animateFloat(.35f, .65f, infiniteRepeatable(tween(2500), RepeatMode.Reverse), label = "glow alpha")
-    Dialog(onDismissRequest = { if (showQueue) showQueue = false else onClose() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+    Dialog(onDismissRequest = { if (showQueue) showQueue = false else onClose() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF594A78), Color(0xFF242032), Color(0xFF101017), Color(0xFF101017)))).statusBarsPadding().navigationBarsPadding()) {
             AnimatedContent(targetState = showQueue, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(180)) }, label = "player page") { showingQueue ->
                 if (showingQueue) {
@@ -68,46 +71,48 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                     }
                 } else {
                     BoxWithConstraints(Modifier.fillMaxSize()) {
-                        val artwork = (maxWidth - 76.dp).coerceAtMost((maxHeight * .38f)).coerceAtMost(340.dp)
-                        Column(Modifier.fillMaxSize().padding(horizontal = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        // A scrollable layout keeps every control reachable on small screens and with large text.
+                        val artwork = (maxWidth - 80.dp).coerceAtMost(maxHeight * .30f).coerceAtMost(300.dp).coerceAtLeast(120.dp)
+                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(onClick = onClose) { Icon(Icons.Default.KeyboardArrowDown, if (fa) "بستن پخش‌کننده" else "Close player", tint = Color.White, modifier = Modifier.size(30.dp)) }
-                                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) { Text(if (fa) "در حال شنیدن" else "NOW PLAYING", color = Color.White.copy(.65f), style = MaterialTheme.typography.labelSmall, letterSpacing = 2.sp); Text(episode.podcast, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge) }
+                                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) { Text(if (fa) "در حال شنیدن" else "NOW PLAYING", color = Color.White.copy(.65f), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp); Text(episode.podcast, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center) }
                                 IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, if (fa) "صف پخش" else "Queue", tint = Color.White) }
                             }
-                            Spacer(Modifier.weight(.7f))
+                            Spacer(Modifier.height(24.dp))
                             Box(contentAlignment = Alignment.Center) {
-                                Box(Modifier.size(artwork * 1.05f).scale(scale).shadow(32.dp, RoundedCornerShape(30.dp), ambientColor = Color(0xFFB99BFF).copy(alpha = glow), spotColor = Color(0xFFB99BFF)).background(Color(0xFF55466B), RoundedCornerShape(30.dp)))
-                                AsyncImage(model = episode.image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(artwork).scale(scale).clip(RoundedCornerShape(26.dp)).background(Color(0xFF55466B)))
+                                Box(Modifier.size(artwork).scale(scale).shadow(24.dp, RoundedCornerShape(24.dp), ambientColor = Color(0xFFB99BFF).copy(alpha = glow), spotColor = Color(0xFFB99BFF)).background(Color(0xFF55466B), RoundedCornerShape(24.dp)))
+                                AsyncImage(model = episode.image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(artwork).scale(scale).clip(RoundedCornerShape(24.dp)).background(Color(0xFF55466B)))
                             }
-                            Spacer(Modifier.weight(.7f))
-                            Column(Modifier.fillMaxWidth()) {
-                                Text(episode.title, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Spacer(Modifier.height(6.dp))
-                                Text(episode.podcast, color = Color.White.copy(.62f), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                            }
-                            Spacer(Modifier.height(18.dp))
-                            // Media progress always flows left-to-right, independent of UI language.
-                            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                                Column {
-                                    Slider(value = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f, onValueChange = { onSeek((it * duration).toLong()) }, colors = SliderDefaults.colors(thumbColor = Lime, activeTrackColor = Lime, inactiveTrackColor = Color.White.copy(.23f)))
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(clock(position), color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall); Text(clock(duration), color = Color.White.copy(.6f), style = MaterialTheme.typography.labelSmall) }
-                                }
-                                Spacer(Modifier.height(8.dp))
-                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
-                                    IconButton(onClick = { onSeek((position - 15000).coerceAtLeast(0)) }) { Icon(Icons.Default.Replay, if (fa) "۱۵ ثانیه عقب" else "Back 15 seconds", tint = Color.White, modifier = Modifier.size(30.dp)) }
-                                    Surface(onClick = onToggle, color = Lime, shape = CircleShape, modifier = Modifier.size(72.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) "Pause" else "Play", tint = Ink, modifier = Modifier.size(38.dp)) } }
-                                    IconButton(onClick = { onSeek(position + 30000) }) { Icon(Icons.Default.Forward30, if (fa) "۳۰ ثانیه جلو" else "Forward 30 seconds", tint = Color.White, modifier = Modifier.size(30.dp)) }
-                                    IconButton(onClick = onSkip, enabled = queue.isNotEmpty()) { Icon(Icons.Default.SkipNext, if (fa) "قسمت بعدی" else "Next episode", tint = if (queue.isEmpty()) Color.White.copy(.3f) else Color.White) }
-                                }
-                            }
+                            Spacer(Modifier.height(24.dp))
+                            Text(episode.title, modifier = Modifier.fillMaxWidth(), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                            Spacer(Modifier.height(6.dp))
+                            Text(episode.podcast, modifier = Modifier.fillMaxWidth(), color = Color.White.copy(.65f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
                             Spacer(Modifier.height(14.dp))
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                                Column(Modifier.fillMaxWidth()) {
+                                    val fraction = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+                                    Slider(value = fraction, onValueChange = { onSeek((it * duration).toLong()) }, enabled = duration > 0,
+                                        thumb = { Box(Modifier.size(14.dp).background(Lime, CircleShape)) },
+                                        track = { state -> LinearProgressIndicator(progress = { state.value }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape), color = Lime, trackColor = Color.White.copy(.22f)) })
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(clock(position), color = Color.White.copy(.65f), style = MaterialTheme.typography.labelSmall); Text(clock(duration), color = Color.White.copy(.65f), style = MaterialTheme.typography.labelSmall) }
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
+                                    IconButton(onClick = onPrevious) { Icon(Icons.Default.SkipPrevious, if (fa) "قسمت قبلی" else "Previous episode", tint = Color.White, modifier = Modifier.size(30.dp)) }
+                                    IconButton(onClick = { onSeek((position - 15000).coerceAtLeast(0)) }) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Replay, if (fa) "۱۵ ثانیه عقب" else "Back 15 seconds", tint = Color.White, modifier = Modifier.size(32.dp)); Text("15", color = Color.White, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp) } }
+                                    Surface(onClick = onToggle, color = Lime, shape = CircleShape, modifier = Modifier.size(64.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) { if (fa) "توقف" else "Pause" } else { if (fa) "پخش" else "Play" }, tint = Ink, modifier = Modifier.size(36.dp)) } }
+                                    IconButton(onClick = { onSeek(position + 30000) }) { Icon(Icons.Default.Forward30, if (fa) "۳۰ ثانیه جلو" else "Forward 30 seconds", tint = Color.White, modifier = Modifier.size(32.dp)) }
+                                    IconButton(onClick = onSkip, enabled = queue.isNotEmpty()) { Icon(Icons.Default.SkipNext, if (fa) "قسمت بعدی" else "Next episode", tint = if (queue.isEmpty()) Color.White.copy(.3f) else Color.White, modifier = Modifier.size(30.dp)) }
+                                }
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = onSpeed) { Text("${speed}×", color = Color.White, fontWeight = FontWeight.Bold) }
                                 TextButton(onClick = onSleep) { Icon(Icons.Default.Bedtime, null, tint = Color.White.copy(.7f), modifier = Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text(if (sleepMinutes == 0) { if (fa) "تایمر خواب" else "Sleep timer" } else "${sleepMinutes} min", color = Color.White.copy(.8f)) }
                                 IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, if (fa) "صف پخش" else "Queue", tint = Color.White) }
                             }
-                            Spacer(Modifier.height(12.dp))
+                            Spacer(Modifier.height(24.dp))
                         }
                     }
                 }
