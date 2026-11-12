@@ -95,7 +95,7 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                                 }
                                 Spacer(Modifier.height(8.dp))
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
-                                    IconButton(onClick = { onSeek((position - 15000).coerceAtLeast(0)) }) { Icon(Icons.Default.Replay15, if (fa) "۱۵ ثانیه عقب" else "Back 15 seconds", tint = Color.White, modifier = Modifier.size(30.dp)) }
+                                    IconButton(onClick = { onSeek((position - 15000).coerceAtLeast(0)) }) { Icon(Icons.Default.Replay, if (fa) "۱۵ ثانیه عقب" else "Back 15 seconds", tint = Color.White, modifier = Modifier.size(30.dp)) }
                                     Surface(onClick = onToggle, color = Lime, shape = CircleShape, modifier = Modifier.size(72.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) "Pause" else "Play", tint = Ink, modifier = Modifier.size(38.dp)) } }
                                     IconButton(onClick = { onSeek(position + 30000) }) { Icon(Icons.Default.Forward30, if (fa) "۳۰ ثانیه جلو" else "Forward 30 seconds", tint = Color.White, modifier = Modifier.size(30.dp)) }
                                     IconButton(onClick = onSkip, enabled = queue.isNotEmpty()) { Icon(Icons.Default.SkipNext, if (fa) "قسمت بعدی" else "Next episode", tint = if (queue.isEmpty()) Color.White.copy(.3f) else Color.White) }
