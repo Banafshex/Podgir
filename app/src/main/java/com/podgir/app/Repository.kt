@@ -26,6 +26,8 @@ class Repository(private val context: Context) {
     private val prefs = context.getSharedPreferences("podgir", Context.MODE_PRIVATE)
     fun boolean(key: String, default: Boolean) = prefs.getBoolean(key, default)
     fun setBoolean(key: String, value: Boolean) { prefs.edit().putBoolean(key, value).apply() }
+    fun lastEpisode(): Episode? = runCatching { Episode.from(JSONObject(prefs.getString("lastEpisode", null) ?: return null)) }.getOrNull()
+    fun saveLastEpisode(e: Episode) { prefs.edit().putString("lastEpisode", e.json().toString()).apply() }
     fun position(url: String) = prefs.getLong("pos:$url", 0)
     fun savePosition(url: String, pos: Long) { prefs.edit().putLong("pos:$url", pos).apply() }
     private fun array(key: String): JSONArray = try { JSONArray(prefs.getString(key, "[]")) } catch (_: Exception) { JSONArray() }

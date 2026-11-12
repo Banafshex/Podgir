@@ -83,7 +83,7 @@ fun PodgirApp(player: MediaController?) {
             var error by remember { mutableStateOf("") }
             var subscriptions by remember { mutableStateOf(repo.subscriptions()) }
             var downloads by remember { mutableStateOf(repo.downloads()) }
-            var current by remember { mutableStateOf<Episode?>(null) }
+            var current by remember { mutableStateOf(repo.lastEpisode()) }
             var playing by remember { mutableStateOf(false) }
             var position by remember { mutableLongStateOf(0L) }
             var duration by remember { mutableLongStateOf(0L) }
@@ -99,9 +99,19 @@ fun PodgirApp(player: MediaController?) {
                 if (player == null) return
                 current?.let { repo.savePosition(it.audio, player.currentPosition) }
                 current = e
+                repo.saveLastEpisode(e)
                 val metadata = MediaMetadata.Builder().setTitle(e.title).setArtist(e.podcast).setArtworkUri(android.net.Uri.parse(e.image)).build()
                 player.setMediaItem(MediaItem.Builder().setUri(repo.playbackUri(e)).setMediaId(e.audio).setMediaMetadata(metadata).build())
                 player.prepare(); player.seekTo(repo.position(e.audio)); player.play()
+            }
+            LaunchedEffect(player) {
+                val e = current
+                if (player != null && e != null && player.currentMediaItem == null) {
+                    val metadata = MediaMetadata.Builder().setTitle(e.title).setArtist(e.podcast).setArtworkUri(android.net.Uri.parse(e.image)).build()
+                    player.setMediaItem(MediaItem.Builder().setUri(repo.playbackUri(e)).setMediaId(e.audio).setMediaMetadata(metadata).build())
+                    player.prepare()
+                    player.seekTo(repo.position(e.audio))
+                }
             }
             LaunchedEffect(Unit) { search("پادکست فارسی") }
             LaunchedEffect(player) {
