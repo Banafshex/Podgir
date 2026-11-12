@@ -22,7 +22,12 @@ jobs:
       - name: Report errors
         if: failure()
         run: |
-          grep -E "(^e: |^\* What went wrong:|^> |^Execution failed|^Caused by:)" build-log.txt | tail -40 | while IFS= read -r line; do echo "::error::$line"; done || true
+          python3 - <<'PYCODE'
+          import re
+          data = open('build-log.txt', errors='replace').read().splitlines()
+          lines = [line for line in data if re.search(r'(^e: |^\* What went wrong:|^> (?!Task)|^Execution failed|^Caused by:|^FAILURE:|^\* Try:)', line)]
+          print('::error::' + '%0A'.join(lines[:35]).replace('%', '%25').replace('%250A', '%0A'))
+          PYCODE
       - uses: actions/upload-artifact@v4
         with:
           name: podgir-debug
