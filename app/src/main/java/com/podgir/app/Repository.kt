@@ -34,6 +34,19 @@ class Repository(private val context: Context) {
     fun subscriptions(): List<Podcast> { val a = array("subscriptions"); return (0 until a.length()).mapNotNull { runCatching { Podcast.from(a.getJSONObject(it)) }.getOrNull() } }
     fun toggle(p: Podcast) { val list = subscriptions().toMutableList(); if (list.any { it.feed == p.feed }) list.removeAll { it.feed == p.feed } else list.add(p); prefs.edit().putString("subscriptions", JSONArray(list.map { it.json() }).toString()).apply() }
     fun downloads(): List<Episode> { val a = array("downloads"); return (0 until a.length()).mapNotNull { runCatching { Episode.from(a.getJSONObject(it)) }.getOrNull() } }
+    fun queue(): List<Episode> { val a = array("queue"); return (0 until a.length()).mapNotNull { runCatching { Episode.from(a.getJSONObject(it)) }.getOrNull() } }
+    fun saveQueue(episodes: List<Episode>) { prefs.edit().putString("queue", JSONArray(episodes.map { it.json() }).toString()).apply() }
+    fun downloadProgress(e: Episode): Float? {
+        val id = downloadId(e); if (id == -1L) return null
+        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        return dm.query(DownloadManager.Query().setFilterById(id)).use { c ->
+            if (!c.moveToFirst()) null else {
+                val total = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                val downloaded = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                if (total > 0) (downloaded.toFloat() / total).coerceIn(0f, 1f) else null
+            }
+        }
+    }
     fun download(e: Episode) {
         if (downloadId(e) != -1L) {
             if (downloadStatus(e) == DownloadManager.STATUS_FAILED || downloadStatus(e) == 0) removeDownload(e) else return

@@ -3,6 +3,8 @@ package com.podgir.app
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 
@@ -14,6 +16,15 @@ class PlaybackService : MediaSessionService() {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
             setHandleAudioBecomingNoisy(true)
         }
+        val repo = Repository(applicationContext)
+        player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val id = mediaItem?.mediaId ?: return
+                val episode = repo.queue().firstOrNull { it.audio == id } ?: return
+                repo.saveLastEpisode(episode)
+                repo.saveQueue(repo.queue().filterNot { it.audio == id })
+            }
+        })
         session = MediaSession.Builder(this, player).build()
     }
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
