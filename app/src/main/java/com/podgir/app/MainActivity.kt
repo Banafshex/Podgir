@@ -9,6 +9,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -49,6 +50,8 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
@@ -60,6 +63,7 @@ class MainActivity : ComponentActivity() {
     private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        FeedRefreshWorker.schedule(applicationContext)
         val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
         val future = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
@@ -108,11 +112,30 @@ fun PodgirApp(player: MediaController?) {
             var expanded by remember { mutableStateOf(false) }
             var sleepMinutes by remember { mutableIntStateOf(if (repo.long("sleepDeadline") > System.currentTimeMillis()) ((repo.long("sleepDeadline") - System.currentTimeMillis()) / 60000L).toInt().coerceAtLeast(1) else 0) }
             var wifiOnly by remember { mutableStateOf(repo.boolean("wifiOnly", false)) }
+            var autoplay by remember { mutableStateOf(repo.boolean("autoplay", true)) }
+            var notifyNew by remember { mutableStateOf(repo.boolean("newEpisodeNotifications", true)) }
+            var autoFeed by remember { mutableStateOf(false) }
             val scope = rememberCoroutineScope()
             var request by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+            fun toast(message: String) { android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show() }
+            val importOpml = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                if (uri != null) scope.launch {
+                    try {
+                        val feeds = withContext(Dispatchers.IO) { Opml.read(context, uri) }
+                        val count = repo.addSubscriptions(feeds); subscriptions = repo.subscriptions()
+                        toast(t("$count پادکست اضافه شد؛ فقط فیدهای HTTPS وارد می‌شوند.", "$count podcasts added; only HTTPS feeds are imported."))
+                    } catch (_: Exception) { toast(t("خواندن فایل OPML ممکن نشد.", "Could not read the OPML file.")) }
+                }
+            }
+            val exportOpml = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/xml")) { uri ->
+                if (uri != null) scope.launch {
+                    try { val feeds = repo.subscriptions(); withContext(Dispatchers.IO) { Opml.write(context, uri, feeds) }; toast(t("اشتراک‌ها ذخیره شدند.", "Subscriptions exported.")) }
+                    catch (_: Exception) { toast(t("ذخیرهٔ فایل ممکن نشد.", "Could not write the file.")) }
+                }
+            }
             BackHandler(enabled = selected != null || expanded || downloadsPage || historyPage || savedPage != 0) { if (expanded) expanded = false else if (savedPage != 0) savedPage = 0 else if (historyPage) historyPage = false else if (downloadsPage) downloadsPage = false else { selected = null; error = "" } }
             fun search(q: String) { request?.cancel(); request = scope.launch { loading = true; error = ""; try { results = repo.search(q) } catch (ex: Exception) { if (ex is kotlinx.coroutines.CancellationException) throw ex; error = t("دریافت اطلاعات ممکن نشد. اتصال اینترنت را بررسی کنید.", "Could not load podcasts. Check your connection.") }; loading = false } }
-            fun open(p: Podcast) { request?.cancel(); selected = p; episodes = emptyList(); request = scope.launch { loading = true; error = ""; try { episodes = repo.episodes(p) } catch (ex: Exception) { if (ex is kotlinx.coroutines.CancellationException) throw ex; error = t("دریافت قسمت‌ها ممکن نشد.", "Could not load episodes.") }; loading = false } }
+            fun open(p: Podcast) { request?.cancel(); autoFeed = repo.autoDownload(p); selected = p; episodes = emptyList(); request = scope.launch { loading = true; error = ""; try { episodes = repo.episodes(p) } catch (ex: Exception) { if (ex is kotlinx.coroutines.CancellationException) throw ex; error = t("دریافت قسمت‌ها ممکن نشد.", "Could not load episodes.") }; loading = false } }
             fun item(e: Episode): MediaItem {
                 val metadata = MediaMetadata.Builder().setTitle(e.title).setArtist(e.podcast).setArtworkUri(android.net.Uri.parse(e.image)).build()
                 return MediaItem.Builder().setUri(repo.playbackUri(e)).setMediaId(e.audio).setMediaMetadata(metadata).build()
@@ -147,7 +170,7 @@ fun PodgirApp(player: MediaController?) {
                     if (player != null) {
                         val active = repo.lastEpisode()
                         if (active != null && player.currentMediaItem?.mediaId == active.audio && active.audio != current?.audio) current = active
-                        queue = repo.queue(); history = repo.history(); currentDownloadStatus = current?.let { repo.downloadStatus(it) } ?: 0
+                        queue = repo.queue(); history = repo.history(); downloads = repo.downloads(); currentDownloadStatus = current?.let { repo.downloadStatus(it) } ?: 0
                         playing = player.isPlaying; position = player.currentPosition.coerceAtLeast(0); duration = player.duration.coerceAtLeast(0)
                         current?.let { if (position > 0) { repo.savePosition(it.audio, position); repo.saveDuration(it.audio, duration) } }
                         if (repo.long("sleepDeadline") == 0L) sleepMinutes = 0
@@ -188,7 +211,8 @@ fun PodgirApp(player: MediaController?) {
                         if (error.isNotEmpty()) item { Message(error) }
                     } else if (detail != null) {
                         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { selected = null; error = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("بازگشت", "Back")) }; Text(t("پادکست", "PODCAST"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) } }
-                        item { Row(verticalAlignment = Alignment.CenterVertically) { Cover(detail.image, 112); Spacer(Modifier.width(18.dp)); Column { Text(detail.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Spacer(Modifier.height(6.dp)); Text(detail.author, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(12.dp)); Button(onClick = { repo.toggle(detail); subscriptions = repo.subscriptions() }, shape = RoundedCornerShape(14.dp)) { Text(if (subscriptions.any { it.feed == detail.feed }) t("دنبال می‌کنید ✓", "Following ✓") else t("دنبال کردن +", "Follow +")) } } } }
+                        item { Row(verticalAlignment = Alignment.CenterVertically) { Cover(detail.image, 112); Spacer(Modifier.width(18.dp)); Column { Text(detail.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Spacer(Modifier.height(6.dp)); Text(detail.author, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(12.dp)); Button(onClick = { val wasFollowing = subscriptions.any { it.feed == detail.feed }; repo.toggle(detail); subscriptions = repo.subscriptions(); if (!wasFollowing && episodes.isNotEmpty()) repo.setSeenEpisode(detail, episodes.first().audio); autoFeed = repo.autoDownload(detail) }, shape = RoundedCornerShape(14.dp)) { Text(if (subscriptions.any { it.feed == detail.feed }) t("دنبال می‌کنید ✓", "Following ✓") else t("دنبال کردن +", "Follow +")) } } } }
+                        if (subscriptions.any { it.feed == detail.feed }) item { SettingRow(t("دانلود خودکار قسمت‌های جدید", "Automatically download new episodes"), t("بررسی دوره‌ای؛ حداکثر ۳ قسمت جدید در هر نوبت", "Periodic check; up to 3 new episodes per check"), autoFeed) { autoFeed = it; repo.setAutoDownload(detail, it) } }
                         item { SectionTitle(t("قسمت‌ها", "Episodes"), "${episodes.size}") }
                         if (loading) item { Loading() }
                         if (error.isNotEmpty()) item { Message(error) }
@@ -229,11 +253,16 @@ fun PodgirApp(player: MediaController?) {
                             item { HistoryEntry(fa) { historyPage = true } }
                             item { SavedEntry(t("علاقه‌مندی‌ها", "Favorites"), "${favorites.size}", Icons.Default.Favorite) { savedPage = 1 } }
                             item { SavedEntry(t("لحظه‌های ذخیره‌شده", "Saved moments"), "${bookmarks.size}", Icons.Default.Bookmark) { savedPage = 2 } }
+                            item { SavedEntry(t("خروجی اشتراک‌ها", "Export subscriptions"), t("فایل OPML", "OPML file"), Icons.Default.FileUpload) { exportOpml.launch("podgir-subscriptions.opml") } }
+                            item { SavedEntry(t("ورود اشتراک‌ها", "Import subscriptions"), t("فایل OPML با فیدهای HTTPS", "OPML file with HTTPS feeds"), Icons.Default.FileDownload) { importOpml.launch(arrayOf("text/*", "application/xml", "application/octet-stream")) } }
+                            item { Text(t("OPML فقط اشتراک‌ها را ذخیره می‌کند، نه دانلودها، یادداشت‌ها یا پیشرفت پخش.", "OPML includes subscriptions only, not downloads, notes, or listening progress."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                         else -> {
                             item { Text(t("تنظیمات", "Settings"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold); Text(t("پادگیر را برای خودت بساز", "Make Podgir yours"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             item { SettingRow(t("حالت شب", "Dark mode"), t("آرام برای چشم‌ها", "Easy on the eyes"), dark) { dark = it; repo.setBoolean("dark", it) } }
                             item { LanguageSetting(fa) { fa = it; repo.setBoolean("fa", it) } }
+                            item { SettingRow(t("پخش خودکار قسمت بعدی", "Autoplay next episode"), t("قسمت بعدی در صف", "Next episode in the queue"), autoplay) { autoplay = it; repo.setBoolean("autoplay", it); context.startService(android.content.Intent(context, PlaybackService::class.java).setAction("com.podgir.app.AUTOPLAY")) } }
+                            item { SettingRow(t("اعلان قسمت جدید", "New episode notifications"), t("برای پادکست‌های دنبال‌شده", "For followed podcasts"), notifyNew) { notifyNew = it; repo.setBoolean("newEpisodeNotifications", it) } }
                             item { SettingRow(t("دانلود فقط با وای‌فای", "Downloads on Wi-Fi only"), t("برای دانلودهای جدید", "For new downloads"), wifiOnly) { wifiOnly = it; repo.setBoolean("wifiOnly", it) } }
                             item { val values = (2..12).map { it * 25 }; OptionSetting(t("سرعت پیش‌فرض", "Default speed"), "${defaultSpeed / 100f}×", values.map { "${it / 100f}×" }) { i -> defaultSpeed = values[i]; repo.setLong("defaultSpeed", defaultSpeed.toLong()); speed = defaultSpeed / 100f; player?.setPlaybackSpeed(speed) } }
                             item { val values = listOf(5, 10, 15, 20, 30, 45, 60); OptionSetting(t("پرش به عقب", "Skip backward"), "$rewindSeconds s", values.map { "$it s" }) { i -> rewindSeconds = values[i]; repo.setLong("rewindSeconds", rewindSeconds.toLong()) } }

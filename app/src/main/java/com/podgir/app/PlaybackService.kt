@@ -21,6 +21,7 @@ class PlaybackService : MediaSessionService() {
         val player = ExoPlayer.Builder(this).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
             setHandleAudioBecomingNoisy(true)
+            setPauseAtEndOfMediaItems(!Repository(applicationContext).boolean("autoplay", true))
             setPlaybackSpeed((Repository(applicationContext).long("defaultSpeed", 100) / 100f).coerceIn(.5f, 3f))
         }
         val repo = Repository(applicationContext)
@@ -43,6 +44,9 @@ class PlaybackService : MediaSessionService() {
         session = MediaSession.Builder(this, player).build()
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "com.podgir.app.AUTOPLAY") {
+            (session?.player as? ExoPlayer)?.setPauseAtEndOfMediaItems(!Repository(applicationContext).boolean("autoplay", true))
+        }
         if (intent?.action == "com.podgir.app.SLEEP_TIMER") {
             sleepTask?.let { handler.removeCallbacks(it) }
             val deadline = intent.getLongExtra("deadline", 0L)

@@ -28,6 +28,7 @@ data class Bookmark(val id: String, val episode: Episode, val position: Long, va
 }
 
 class Repository(private val context: Context) {
+    companion object { private val downloadLock = Any() }
     private val prefs = context.getSharedPreferences("podgir", Context.MODE_PRIVATE)
     fun long(key: String, default: Long = 0) = prefs.getLong(key, default)
     fun setLong(key: String, value: Long) { prefs.edit().putLong(key, value).apply() }
@@ -44,7 +45,20 @@ class Repository(private val context: Context) {
     fun savePosition(url: String, pos: Long) { prefs.edit().putLong("pos:$url", pos).apply() }
     private fun array(key: String): JSONArray = try { JSONArray(prefs.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
     fun subscriptions(): List<Podcast> { val a = array("subscriptions"); return (0 until a.length()).mapNotNull { runCatching { Podcast.from(a.getJSONObject(it)) }.getOrNull() } }
-    fun toggle(p: Podcast) { val list = subscriptions().toMutableList(); if (list.any { it.feed == p.feed }) list.removeAll { it.feed == p.feed } else list.add(p); prefs.edit().putString("subscriptions", JSONArray(list.map { it.json() }).toString()).apply() }
+    fun toggle(p: Podcast) {
+        val list = subscriptions().toMutableList()
+        if (list.any { it.feed == p.feed }) { list.removeAll { it.feed == p.feed }; prefs.edit().remove("auto:${p.feed}").remove("seen:${p.feed}").apply() } else list.add(p)
+        prefs.edit().putString("subscriptions", JSONArray(list.map { it.json() }).toString()).apply()
+    }
+    fun addSubscriptions(newItems: List<Podcast>): Int {
+        val existing = subscriptions(); val combined = (existing + newItems).distinctBy { it.feed }
+        prefs.edit().putString("subscriptions", JSONArray(combined.map { it.json() }).toString()).apply()
+        return combined.size - existing.size
+    }
+    fun autoDownload(p: Podcast) = prefs.getBoolean("auto:${p.feed}", false)
+    fun setAutoDownload(p: Podcast, enabled: Boolean) { prefs.edit().putBoolean("auto:${p.feed}", enabled).apply() }
+    fun seenEpisode(p: Podcast): String? = prefs.getString("seen:${p.feed}", null)
+    fun setSeenEpisode(p: Podcast, url: String) { prefs.edit().putString("seen:${p.feed}", url).apply() }
     fun favorites(): List<Episode> { val a = array("favorites"); return (0 until a.length()).mapNotNull { runCatching { Episode.from(a.getJSONObject(it)) }.getOrNull() } }
     fun toggleFavorite(e: Episode) { val all = favorites(); val updated = if (all.any { it.audio == e.audio }) all.filterNot { it.audio == e.audio } else listOf(e) + all; prefs.edit().putString("favorites", JSONArray(updated.map { it.json() }).toString()).apply() }
     fun bookmarks(): List<Bookmark> { val a = array("bookmarks"); return (0 until a.length()).mapNotNull { runCatching { Bookmark.from(a.getJSONObject(it)) }.getOrNull() } }
@@ -64,9 +78,9 @@ class Repository(private val context: Context) {
             }
         }
     }
-    fun download(e: Episode) {
+    fun download(e: Episode) = synchronized(downloadLock) {
         if (downloadId(e) != -1L) {
-            if (downloadStatus(e) == DownloadManager.STATUS_FAILED || downloadStatus(e) == 0) removeDownload(e) else return
+            if (downloadStatus(e) == DownloadManager.STATUS_FAILED || downloadStatus(e) == 0) removeDownload(e) else return@synchronized
         }
         val request = DownloadManager.Request(Uri.parse(e.audio)).setTitle(e.title)
             .setDescription(e.podcast).setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
@@ -88,7 +102,7 @@ class Repository(private val context: Context) {
         }
         return e.audio
     }
-    fun removeDownload(e: Episode) {
+    fun removeDownload(e: Episode) = synchronized(downloadLock) {
         val id = downloadId(e); if (id != -1L) (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).remove(id)
         prefs.edit().remove("download:${e.audio}").putString("downloads", JSONArray(downloads().filterNot { it.audio == e.audio }.map { it.json() }).toString()).apply()
     }
