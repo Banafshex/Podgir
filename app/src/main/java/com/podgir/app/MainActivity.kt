@@ -57,8 +57,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
-private val Purple = Color(0xFF6A58E8)
-private val Mint = Color(0xFFB7F0D5)
+private val Purple = Color(0xFF5152B8)
 
 class MainActivity : ComponentActivity() {
     private var controller by mutableStateOf<MediaController?>(null)
@@ -88,9 +87,9 @@ fun PodgirApp(player: MediaController?) {
     val dark = when (themeMode) { 0 -> isSystemInDarkTheme(); 1 -> false; else -> true }
     SideEffect { (context as? ComponentActivity)?.window?.let { configureSystemBars(it, dark, true, Color.Transparent, Color.Transparent) } }
     fun t(f: String, e: String) = if (fa) f else e
-    val colors = if (dark) darkColorScheme(primary = Color(0xFFD1F36B), onPrimary = Color(0xFF171A0D), primaryContainer = Color(0xFF343D21), background = Color(0xFF101017), surface = Color(0xFF1B1B25), surfaceVariant = Color(0xFF292935), onSurface = Color(0xFFF5F3FA), onSurfaceVariant = Color(0xFFB8B6C2)) else lightColorScheme(primary = Purple, background = Color(0xFFF8F7FC), surface = Color.White, surfaceVariant = Color(0xFFEFEDF7), onSurface = Color(0xFF242136))
+    val colors = if (dark) darkColorScheme(primary = NeonCyan, onPrimary = Color(0xFF071C23), primaryContainer = Color(0xFF253049), onPrimaryContainer = Color(0xFFDDEAFF), background = Color(0xFF0B0E1A), surface = Color(0xFF161B2C), surfaceVariant = Color(0xFF252B40), onSurface = Color(0xFFF1F3FC), onSurfaceVariant = Color(0xFFB9C1D3)) else lightColorScheme(primary = Purple, primaryContainer = Color(0xFFE3E4FF), onPrimaryContainer = Color(0xFF1B2057), background = Color(0xFFF5F6FC), surface = Color.White, surfaceVariant = Color(0xFFEAEDF7), onSurface = Color(0xFF1B2034))
     CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides if (fa) LayoutDirection.Rtl else LayoutDirection.Ltr) {
-        MaterialTheme(colorScheme = colors) {
+        MaterialTheme(colorScheme = colors, typography = if (fa) persianTypography() else Typography()) {
             var tab by remember { mutableStateOf(0) }
             var selected by remember { mutableStateOf<Podcast?>(null) }
             var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
@@ -366,20 +365,41 @@ fun PodgirApp(player: MediaController?) {
 private fun formatTime(ms: Long): String { val s = TimeUnit.MILLISECONDS.toSeconds(ms.coerceAtLeast(0)); return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s % 3600 / 60, s % 60) else "%d:%02d".format(s / 60, s % 60) }
 
 @Composable private fun Cover(url: String, size: Int) { AsyncImage(model = url, contentDescription = null, modifier = Modifier.size(size.dp).clip(RoundedCornerShape((size / 5).dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
-@Composable private fun Header(fa: Boolean) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) { Column { Text(if (fa) "سلام، خوش اومدی ✨" else "HELLO, LISTENER ✨", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold); Spacer(Modifier.height(4.dp)); Text(if (fa) "پادگیر" else "Podgir", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black) }; Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(46.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Headphones, null, tint = MaterialTheme.colorScheme.primary) } } } }
-@Composable private fun Hero(fa: Boolean, onClick: () -> Unit) {
-    val transition = rememberInfiniteTransition(label = "hero")
-    val shift by transition.animateFloat(0f, 1f, infiniteRepeatable(tween(3500, easing = LinearEasing), RepeatMode.Reverse), label = "hero motion")
-    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(26.dp)).background(Brush.linearGradient(listOf(Color(0xFF7A60D5), Color(0xFF49347E), Color(0xFF252139)))).clickable(onClick = onClick)) {
-        Canvas(Modifier.matchParentSize()) {
-            val x = size.width * .85f; val y = size.height * (.46f + shift * .03f)
-            for (i in 1..5) drawCircle(Color.White.copy(alpha = .07f), radius = size.minDimension * (.13f + i * .09f), center = Offset(x, y), style = Stroke(width = 1.5.dp.toPx()))
-            drawCircle(Color(0xFFD1F36B).copy(alpha = .75f), radius = 10.dp.toPx(), center = Offset(x, y))
+@Composable private fun Header(fa: Boolean) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Column {
+            Text(if (fa) "یک دنیای تازه برای شنیدن" else "YOUR SPACE TO LISTEN", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(4.dp)); Text(if (fa) "پادگیر" else "Podgir", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         }
-        Column(Modifier.padding(24.dp)) {
-            Text(if (fa) "پیشنهاد امروز  ✦" else "YOUR DAILY DISCOVERY  ✦", color = Color(0xFFD1F36B), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(12.dp)); Text(if (fa) "یه دنیا قصه،\nبرای گوش‌های تو." else "A world of stories,\njust for you.", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, lineHeight = 34.sp)
-            Spacer(Modifier.height(18.dp)); Surface(shape = RoundedCornerShape(50), color = Color(0xFFD1F36B)) { Text(if (fa) "شروع کشف  ←" else "Start exploring  →", modifier = Modifier.padding(horizontal = 18.dp, vertical = 9.dp), color = Color(0xFF193023), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge) }
+        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(46.dp)) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.GraphicEq, null, tint = MaterialTheme.colorScheme.primary) } }
+    }
+}
+@Composable private fun Hero(fa: Boolean, onClick: () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Brush.linearGradient(listOf(Color(0xFF171D38), Color(0xFF20284A), Color(0xFF151B31)))).clickable(onClick = onClick)) {
+        val artSize = if (maxWidth < 320.dp) 66.dp else 92.dp
+        // Artwork is confined to its own column, away from the text.
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(NeonCyan)); Spacer(Modifier.width(7.dp))
+                    Text(if (fa) "کشف در پادگیر" else "DISCOVER ON PODGIR", color = NeonCyan, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(if (fa) "صدای بعدیِ محبوبت\nاینجاست." else "Your next favorite\nlisten is here.", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, lineHeight = 32.sp)
+                Spacer(Modifier.height(15.dp))
+                Surface(shape = RoundedCornerShape(12.dp), color = NeonCyan) { Text(if (fa) "کشف پادکست  ←" else "Explore podcasts  →", modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = Color(0xFF10242A), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge) }
+            }
+            Spacer(Modifier.width(12.dp))
+            Box(Modifier.size(artSize).clip(RoundedCornerShape(22.dp)).background(Brush.linearGradient(listOf(Color(0xFF313F60), Color(0xFF222C48)))), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.fillMaxSize().padding(17.dp)) {
+                    val heights = listOf(.25f, .52f, .72f, .46f, .92f, .6f, .35f)
+                    val step = size.width / heights.size
+                    heights.forEachIndexed { i, height ->
+                        val bar = size.height * height
+                        drawRoundRect(brush = Brush.verticalGradient(listOf(NeonCyan, NeonViolet)), topLeft = Offset(i * step + step * .24f, (size.height - bar) / 2), size = androidx.compose.ui.geometry.Size(step * .46f, bar), cornerRadius = androidx.compose.ui.geometry.CornerRadius(step))
+                    }
+                }
+            }
         }
     }
 }

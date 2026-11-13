@@ -44,8 +44,8 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import java.util.concurrent.TimeUnit
 
-private val Lime = Color(0xFFD1F36B)
-private val Ink = Color(0xFF111118)
+private val PlayerAccent = NeonCyan
+private val Ink = Color(0xFF071A22)
 private fun clock(ms: Long): String { val s = TimeUnit.MILLISECONDS.toSeconds(ms.coerceAtLeast(0)); return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s % 3600 / 60, s % 60) else "%d:%02d".format(s / 60, s % 60) }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -61,8 +61,10 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
     val pulse = rememberInfiniteTransition(label = "glow")
     val glow by pulse.animateFloat(.35f, .65f, infiniteRepeatable(tween(2500), RepeatMode.Reverse), label = "glow alpha")
     Dialog(onDismissRequest = { if (showQueue) showQueue = false else onClose() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
-        DialogSystemBars(dark = true, status = Color(0xFF594A78), navigation = Color(0xFF101017))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF594A78), Color(0xFF242032), Color(0xFF101017), Color(0xFF101017)))).statusBarsPadding().navigationBarsPadding()) {
+        DialogSystemBars(dark = true, status = Color(0xFF161B35), navigation = Color(0xFF0B0D17))
+        Box(Modifier.fillMaxSize().background(Color(0xFF0B0D17))) {
+            PlayerAmbientBackground(Modifier.matchParentSize())
+            Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             AnimatedContent(targetState = showQueue, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(180)) }, label = "player page") { showingQueue ->
                 if (showingQueue) {
                     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp)) {
@@ -71,7 +73,7 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                             Text(if (fa) "صف پخش" else "Play queue", Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                             Spacer(Modifier.width(48.dp))
                         }
-                        Text(if (fa) "در حال پخش" else "NOW PLAYING", color = Lime, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text(if (fa) "در حال پخش" else "NOW PLAYING", color = PlayerAccent, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                         Spacer(Modifier.height(14.dp))
                         QueueRow(episode, fa, current = true)
                         Spacer(Modifier.height(28.dp))
@@ -96,8 +98,8 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                             }
                             Spacer(Modifier.height(24.dp))
                             Box(contentAlignment = Alignment.Center) {
-                                Box(Modifier.size(artwork).scale(scale).shadow(24.dp, RoundedCornerShape(24.dp), ambientColor = Color(0xFFB99BFF).copy(alpha = glow), spotColor = Color(0xFFB99BFF)).background(Color(0xFF55466B), RoundedCornerShape(24.dp)))
-                                AsyncImage(model = episode.image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(artwork).scale(scale).clip(RoundedCornerShape(24.dp)).background(Color(0xFF55466B)))
+                                Box(Modifier.size(artwork).scale(scale).shadow(24.dp, RoundedCornerShape(24.dp), ambientColor = Color(0xFF9CEDE6).copy(alpha = glow), spotColor = Color(0xFF9CEDE6)).background(Color(0xFF28344E), RoundedCornerShape(24.dp)))
+                                AsyncImage(model = episode.image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(artwork).scale(scale).clip(RoundedCornerShape(24.dp)).background(Color(0xFF28344E)))
                             }
                             Spacer(Modifier.height(24.dp))
                             Text(episode.title, modifier = Modifier.fillMaxWidth(), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
@@ -108,15 +110,15 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                                 Column(Modifier.fillMaxWidth()) {
                                     val fraction = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
                                     Slider(value = fraction, onValueChange = { onSeek((it * duration).toLong()) }, enabled = duration > 0,
-                                        thumb = { Box(Modifier.size(14.dp).background(Lime, CircleShape)) },
-                                        track = { state -> LinearProgressIndicator(progress = { state.value }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape), color = Lime, trackColor = Color.White.copy(.22f)) })
+                                        thumb = { Box(Modifier.size(14.dp).background(PlayerAccent, CircleShape)) },
+                                        track = { state -> LinearProgressIndicator(progress = { state.value }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape), color = PlayerAccent, trackColor = Color.White.copy(.22f)) })
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(clock(position), color = Color.White.copy(.65f), style = MaterialTheme.typography.labelSmall); Text(clock(duration), color = Color.White.copy(.65f), style = MaterialTheme.typography.labelSmall) }
                                 }
                                 Spacer(Modifier.height(12.dp))
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
                                     IconButton(onClick = onPrevious) { Icon(Icons.Default.SkipPrevious, if (fa) "قسمت قبلی" else "Previous episode", tint = Color.White, modifier = Modifier.size(30.dp)) }
                                     SkipButton(seconds = rewindSeconds, backwards = true, description = if (fa) "$rewindSeconds ثانیه عقب" else "Back $rewindSeconds seconds") { onSeek((position - rewindSeconds * 1000L).coerceAtLeast(0)) }
-                                    Surface(onClick = onToggle, color = Lime, shape = CircleShape, modifier = Modifier.size(64.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) { if (fa) "توقف" else "Pause" } else { if (fa) "پخش" else "Play" }, tint = Ink, modifier = Modifier.size(36.dp)) } }
+                                    Surface(onClick = onToggle, color = PlayerAccent, shape = CircleShape, modifier = Modifier.size(64.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) { if (fa) "توقف" else "Pause" } else { if (fa) "پخش" else "Play" }, tint = Ink, modifier = Modifier.size(36.dp)) } }
                                     SkipButton(seconds = forwardSeconds, backwards = false, description = if (fa) "$forwardSeconds ثانیه جلو" else "Forward $forwardSeconds seconds") { onSeek(position + forwardSeconds * 1000L) }
                                     IconButton(onClick = onSkip, enabled = queue.isNotEmpty()) { Icon(Icons.Default.SkipNext, if (fa) "قسمت بعدی" else "Next episode", tint = if (queue.isEmpty()) Color.White.copy(.3f) else Color.White, modifier = Modifier.size(30.dp)) }
                                 }
@@ -128,9 +130,9 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                                 IconButton(onClick = { showQueue = true }) { Icon(Icons.Default.QueueMusic, if (fa) "صف پخش" else "Queue", tint = Color.White) }
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = onFavorite) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, if (fa) "علاقه‌مندی" else "Favorite", tint = if (favorite) Lime else Color.White.copy(.8f)) }
+                                IconButton(onClick = onFavorite) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, if (fa) "علاقه‌مندی" else "Favorite", tint = if (favorite) PlayerAccent else Color.White.copy(.8f)) }
                                 IconButton(onClick = { bookmarkPosition = position; note = ""; showBookmark = true }) { Icon(Icons.Default.BookmarkAdd, if (fa) "ذخیره لحظه" else "Save moment", tint = Color.White.copy(.8f)) }
-                                IconButton(onClick = onDownload, enabled = downloadStatus == 0 || downloadStatus == android.app.DownloadManager.STATUS_FAILED) { Icon(if (downloadStatus == android.app.DownloadManager.STATUS_SUCCESSFUL) Icons.Default.CheckCircle else Icons.Default.Download, if (fa) "دانلود" else "Download", tint = if (downloadStatus == android.app.DownloadManager.STATUS_SUCCESSFUL) Lime else Color.White.copy(.8f)) }
+                                IconButton(onClick = onDownload, enabled = downloadStatus == 0 || downloadStatus == android.app.DownloadManager.STATUS_FAILED) { Icon(if (downloadStatus == android.app.DownloadManager.STATUS_SUCCESSFUL) Icons.Default.CheckCircle else Icons.Default.Download, if (fa) "دانلود" else "Download", tint = if (downloadStatus == android.app.DownloadManager.STATUS_SUCCESSFUL) PlayerAccent else Color.White.copy(.8f)) }
                                 IconButton(onClick = onShare) { Icon(Icons.Default.Share, if (fa) "اشتراک‌گذاری فایل صوتی" else "Share audio link", tint = Color.White.copy(.8f)) }
                             }
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -141,6 +143,7 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -153,7 +156,7 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
         AsyncImage(model = e.image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(50.dp).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(.1f)))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) { Text(e.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(e.podcast, color = Color.White.copy(.55f), style = MaterialTheme.typography.labelSmall, maxLines = 1) }
-        if (current) Icon(Icons.Default.GraphicEq, null, tint = Lime) else {
+        if (current) Icon(Icons.Default.GraphicEq, null, tint = PlayerAccent) else {
             Column { IconButton(onClick = { onUp?.invoke() }, enabled = onUp != null, modifier = Modifier.size(25.dp)) { Icon(Icons.Default.KeyboardArrowUp, if (fa) "بالا" else "Move up", tint = Color.White.copy(if (onUp == null) .2f else .8f)) }; IconButton(onClick = { onDown?.invoke() }, enabled = onDown != null, modifier = Modifier.size(25.dp)) { Icon(Icons.Default.KeyboardArrowDown, if (fa) "پایین" else "Move down", tint = Color.White.copy(if (onDown == null) .2f else .8f)) } }
             IconButton(onClick = { onRemove?.invoke() }) { Icon(Icons.Default.Close, if (fa) "حذف از صف" else "Remove from queue", tint = Color.White.copy(.7f)) }
         }

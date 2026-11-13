@@ -25,15 +25,15 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 
 @Composable fun MiniPlayer(e: Episode, playing: Boolean, position: Long, duration: Long, onOpen: () -> Unit, onToggle: () -> Unit) {
-    Surface(onClick = onOpen, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), shape = RoundedCornerShape(18.dp), color = Color(0xFF3F3A53), shadowElevation = 8.dp) {
+    Surface(onClick = onOpen, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), shape = RoundedCornerShape(18.dp), color = Color(0xFF252D46), shadowElevation = 8.dp) {
         Column {
             Row(Modifier.padding(start = 9.dp, end = 8.dp, top = 8.dp, bottom = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                AsyncImage(model = e.image, contentDescription = null, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF635A77)), contentScale = ContentScale.Crop)
+                AsyncImage(model = e.image, contentDescription = null, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFF3B4968)), contentScale = ContentScale.Crop)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) { Text(e.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(e.podcast, color = Color.White.copy(.65f), style = MaterialTheme.typography.labelSmall, maxLines = 1) }
                 IconButton(onClick = onToggle) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) "Pause" else "Play", tint = Color.White, modifier = Modifier.size(30.dp)) }
             }
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) { LinearProgressIndicator(progress = { if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f }, modifier = Modifier.fillMaxWidth().height(3.dp), color = Color(0xFFD1F36B), trackColor = Color.White.copy(.18f)) }
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) { LinearProgressIndicator(progress = { if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f }, modifier = Modifier.fillMaxWidth().height(3.dp), color = NeonCyan, trackColor = Color.White.copy(.18f)) }
         }
     }
 }
@@ -42,7 +42,7 @@ import kotlinx.coroutines.delay
     Column(Modifier.width(150.dp).clickable(onClick = onClick)) {
         Box {
             AsyncImage(model = p.image, contentDescription = null, modifier = Modifier.size(150.dp).clip(RoundedCornerShape(19.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentScale = ContentScale.Crop)
-            Surface(color = Color(0xFFD1F36B), shape = CircleShape, modifier = Modifier.align(Alignment.BottomEnd).padding(9.dp).size(32.dp), shadowElevation = 4.dp) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.PlayArrow, null, tint = Color(0xFF171A0D), modifier = Modifier.size(22.dp)) } }
+            Surface(color = NeonCyan, shape = CircleShape, modifier = Modifier.align(Alignment.BottomEnd).padding(9.dp).size(32.dp), shadowElevation = 4.dp) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.PlayArrow, null, tint = Color(0xFF071C23), modifier = Modifier.size(22.dp)) } }
         }
         Spacer(Modifier.height(10.dp))
         Text(p.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
