@@ -65,6 +65,25 @@ class Repository(private val context: Context) {
     fun setAutoDownload(p: Podcast, enabled: Boolean) { prefs.edit().putBoolean("auto:${p.feed}", enabled).apply() }
     fun seenEpisode(p: Podcast): String? = prefs.getString("seen:${p.feed}", null)
     fun setSeenEpisode(p: Podcast, url: String) { prefs.edit().putString("seen:${p.feed}", url).apply() }
+    fun libraryBackup(): LibraryBackup {
+        val history = history(); val favorites = favorites(); val bookmarks = bookmarks()
+        val episodes = (history + favorites + bookmarks.map { it.episode }).distinctBy { it.audio }
+        val progress = episodes.map { SavedProgress(it.audio, position(it.audio), duration(it.audio)) }
+        return LibraryBackup(subscriptions(), history, favorites, bookmarks, progress)
+    }
+    fun restoreLibraryBackup(data: LibraryBackup) {
+        // All parsing/validation happens before this single preferences transaction.
+        val editor = prefs.edit()
+        history().forEach { editor.remove("pos:${it.audio}").remove("duration:${it.audio}") }
+        subscriptions().forEach { editor.remove("auto:${it.feed}").remove("seen:${it.feed}") }
+        data.subscriptions.forEach { editor.remove("auto:${it.feed}").remove("seen:${it.feed}") }
+        editor.putString("subscriptions", JSONArray(data.subscriptions.map { it.json() }).toString())
+        editor.putString("history", JSONArray(data.history.map { it.json() }).toString())
+        editor.putString("favorites", JSONArray(data.favorites.map { it.json() }).toString())
+        editor.putString("bookmarks", JSONArray(data.bookmarks.map { it.json() }).toString())
+        data.progress.forEach { editor.putLong("pos:${it.audio}", it.position).putLong("duration:${it.audio}", it.duration) }
+        editor.apply()
+    }
     fun favorites(): List<Episode> { val a = array("favorites"); return (0 until a.length()).mapNotNull { runCatching { Episode.from(a.getJSONObject(it)) }.getOrNull() } }
     fun toggleFavorite(e: Episode) { val all = favorites(); val updated = if (all.any { it.audio == e.audio }) all.filterNot { it.audio == e.audio } else listOf(e) + all; prefs.edit().putString("favorites", JSONArray(updated.map { it.json() }).toString()).apply() }
     fun bookmarks(): List<Bookmark> { val a = array("bookmarks"); return (0 until a.length()).mapNotNull { runCatching { Bookmark.from(a.getJSONObject(it)) }.getOrNull() } }

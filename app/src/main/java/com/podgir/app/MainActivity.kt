@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         FeedRefreshWorker.schedule(applicationContext)
+        if (Repository(applicationContext).boolean("listeningReminder", false)) ReminderWorker.configure(applicationContext, true)
         val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
         val future = MediaController.Builder(this, SessionToken(this, ComponentName(this, PlaybackService::class.java))).buildAsync()
@@ -124,9 +125,18 @@ fun PodgirApp(player: MediaController?) {
             var wifiOnly by remember { mutableStateOf(repo.boolean("wifiOnly", false)) }
             var autoplay by remember { mutableStateOf(repo.boolean("autoplay", true)) }
             var notifyNew by remember { mutableStateOf(repo.boolean("newEpisodeNotifications", true)) }
+            var reminder by remember { mutableStateOf(repo.boolean("listeningReminder", false)) }
+            var notificationsAllowed by remember { mutableStateOf(androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()) }
+            val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner) {
+                val observer = androidx.lifecycle.LifecycleEventObserver { _, event -> if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) notificationsAllowed = androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled() }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+            }
             var autoFeed by remember { mutableStateOf(false) }
             val scope = rememberCoroutineScope()
             var request by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+            var pendingBackup by remember { mutableStateOf<LibraryBackup?>(null) }
             fun toast(message: String) { android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show() }
             val importOpml = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                 if (uri != null) scope.launch {
@@ -142,6 +152,33 @@ fun PodgirApp(player: MediaController?) {
                     try { val feeds = repo.subscriptions(); withContext(Dispatchers.IO) { Opml.write(context, uri, feeds) }; toast(t("اشتراک‌ها ذخیره شدند.", "Subscriptions exported.")) }
                     catch (_: Exception) { toast(t("ذخیرهٔ فایل ممکن نشد.", "Could not write the file.")) }
                 }
+            }
+            val importBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                if (uri != null) scope.launch {
+                    try { pendingBackup = withContext(Dispatchers.IO) { BackupFiles.read(context, uri) } }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { toast(t("فایل پشتیبان معتبر نیست یا خوانده نمی‌شود.", "The backup is invalid or cannot be read.")) }
+                }
+            }
+            val exportBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+                if (uri != null) scope.launch {
+                    try { val data = repo.libraryBackup(); withContext(Dispatchers.IO) { BackupFiles.write(context, uri, data) }; toast(t("فایل پشتیبان ذخیره شد.", "Backup saved.")) }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { toast(t("ذخیرهٔ پشتیبان ممکن نشد.", "Could not save the backup.")) }
+                }
+            }
+            pendingBackup?.let { backup ->
+                AlertDialog(onDismissRequest = { pendingBackup = null },
+                    title = { Text(t("بازیابی کتابخانه؟", "Restore library?")) },
+                    text = { Text(t("اشتراک‌ها، تاریخچه، علاقه‌مندی‌ها، یادداشت‌ها و پیشرفت فعلی جایگزین می‌شوند. دانلودها و صف حذف نمی‌شوند؛ دانلود خودکار برای اشتراک‌ها خاموش می‌شود. پخش متوقف می‌شود.", "This replaces your follows, history, favorites, notes and progress. Downloads and queue remain; automatic downloads are disabled for follows. Playback will pause.")) },
+                    confirmButton = { TextButton(onClick = {
+                        player?.pause(); repo.restoreLibraryBackup(backup)
+                        val restoredPosition = backup.progress.firstOrNull { it.audio == current?.audio }?.position
+                        if (restoredPosition != null) { player?.seekTo(restoredPosition); position = restoredPosition }
+                        subscriptions = repo.subscriptions(); history = repo.history(); favorites = repo.favorites(); bookmarks = repo.bookmarks()
+                        selected?.let { autoFeed = repo.autoDownload(it) }
+                        pendingBackup = null; toast(t("کتابخانه بازیابی شد.", "Library restored."))
+                    }) { Text(t("بازیابی", "Restore")) } }, dismissButton = { TextButton(onClick = { pendingBackup = null }) { Text(t("انصراف", "Cancel")) } })
             }
             BackHandler(enabled = selected != null || expanded || downloadsPage || historyPage || savedPage != 0) { if (expanded) expanded = false else if (savedPage != 0) savedPage = 0 else if (historyPage) historyPage = false else if (downloadsPage) downloadsPage = false else { selected = null; error = "" } }
             fun search(q: String, includeEpisodes: Boolean = true) {
@@ -283,6 +320,8 @@ fun PodgirApp(player: MediaController?) {
                             item { HistoryEntry(fa) { historyPage = true } }
                             item { SavedEntry(t("علاقه‌مندی‌ها", "Favorites"), "${favorites.size}", Icons.Default.Favorite) { savedPage = 1 } }
                             item { SavedEntry(t("لحظه‌های ذخیره‌شده", "Saved moments"), "${bookmarks.size}", Icons.Default.Bookmark) { savedPage = 2 } }
+                            item { SavedEntry(t("پشتیبان کتابخانه", "Back up library"), t("اشتراک‌ها، تاریخچه، یادداشت‌ها و پیشرفت", "Follows, history, notes and progress"), Icons.Default.Backup) { exportBackup.launch("podgir-backup.json") } }
+                            item { SavedEntry(t("بازیابی پشتیبان", "Restore backup"), t("از فایل پشتیبان پادگیر", "From a Podgir backup file"), Icons.Default.Restore) { importBackup.launch(arrayOf("application/json", "text/*", "application/octet-stream")) } }
                             item { SavedEntry(t("خروجی اشتراک‌ها", "Export subscriptions"), t("فایل OPML", "OPML file"), Icons.Default.FileUpload) { exportOpml.launch("podgir-subscriptions.opml") } }
                             item { SavedEntry(t("ورود اشتراک‌ها", "Import subscriptions"), t("فایل OPML با فیدهای HTTPS", "OPML file with HTTPS feeds"), Icons.Default.FileDownload) { importOpml.launch(arrayOf("text/*", "application/xml", "application/octet-stream")) } }
                             item { Text(t("OPML فقط اشتراک‌ها را ذخیره می‌کند، نه دانلودها، یادداشت‌ها یا پیشرفت پخش.", "OPML includes subscriptions only, not downloads, notes, or listening progress."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -293,6 +332,8 @@ fun PodgirApp(player: MediaController?) {
                             item { LanguageSetting(fa) { fa = it; repo.setBoolean("fa", it) } }
                             item { SettingRow(t("پخش خودکار قسمت بعدی", "Autoplay next episode"), t("قسمت بعدی در صف", "Next episode in the queue"), autoplay) { autoplay = it; repo.setBoolean("autoplay", it); context.startService(android.content.Intent(context, PlaybackService::class.java).setAction("com.podgir.app.AUTOPLAY")) } }
                             item { SettingRow(t("اعلان قسمت جدید", "New episode notifications"), t("برای پادکست‌های دنبال‌شده", "For followed podcasts"), notifyNew) { notifyNew = it; repo.setBoolean("newEpisodeNotifications", it) } }
+                            item { SettingRow(t("یادآور شنیدن", "Listening reminder"), t("تقریباً روزانه؛ زمان دقیق وابسته به اندروید", "Approximately daily; timing depends on Android"), reminder) { reminder = it; repo.setBoolean("listeningReminder", it); ReminderWorker.configure(context, it) } }
+                            if ((notifyNew || reminder) && !notificationsAllowed) item { Column { Message(t("اعلان‌های پادگیر در تنظیمات اندروید غیرفعال‌اند.", "Podgir notifications are disabled in Android settings.")); TextButton(onClick = { val intent = if (Build.VERSION.SDK_INT >= 26) android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName) else android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + context.packageName)); context.startActivity(intent) }) { Text(t("تنظیمات اعلان", "Notification settings")) } } }
                             item { SettingRow(t("دانلود فقط با وای‌فای", "Downloads on Wi-Fi only"), t("برای دانلودهای جدید", "For new downloads"), wifiOnly) { wifiOnly = it; repo.setBoolean("wifiOnly", it) } }
                             item { val values = (2..12).map { it * 25 }; OptionSetting(t("سرعت پیش‌فرض", "Default speed"), "${defaultSpeed / 100f}×", values.map { "${it / 100f}×" }) { i -> defaultSpeed = values[i]; repo.setLong("defaultSpeed", defaultSpeed.toLong()); speed = defaultSpeed / 100f; player?.setPlaybackSpeed(speed) } }
                             item { val values = listOf(5, 10, 15, 20, 30, 45, 60); OptionSetting(t("پرش به عقب", "Skip backward"), "$rewindSeconds s", values.map { "$it s" }) { i -> rewindSeconds = values[i]; repo.setLong("rewindSeconds", rewindSeconds.toLong()) } }
