@@ -3,6 +3,7 @@ package com.podgir.app
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -22,6 +23,14 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
@@ -52,6 +61,7 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
     val pulse = rememberInfiniteTransition(label = "glow")
     val glow by pulse.animateFloat(.35f, .65f, infiniteRepeatable(tween(2500), RepeatMode.Reverse), label = "glow alpha")
     Dialog(onDismissRequest = { if (showQueue) showQueue = false else onClose() }, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
+        DialogSystemBars(dark = true, status = Color(0xFF594A78), navigation = Color(0xFF101017))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF594A78), Color(0xFF242032), Color(0xFF101017), Color(0xFF101017)))).statusBarsPadding().navigationBarsPadding()) {
             AnimatedContent(targetState = showQueue, transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(180)) }, label = "player page") { showingQueue ->
                 if (showingQueue) {
@@ -105,9 +115,9 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                                 Spacer(Modifier.height(12.dp))
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceEvenly) {
                                     IconButton(onClick = onPrevious) { Icon(Icons.Default.SkipPrevious, if (fa) "قسمت قبلی" else "Previous episode", tint = Color.White, modifier = Modifier.size(30.dp)) }
-                                    IconButton(onClick = { onSeek((position - rewindSeconds * 1000L).coerceAtLeast(0)) }) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Replay, if (fa) "$rewindSeconds ثانیه عقب" else "Back $rewindSeconds seconds", tint = Color.White, modifier = Modifier.size(32.dp)); Text("$rewindSeconds", color = Color.White, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp) } }
+                                    SkipButton(seconds = rewindSeconds, backwards = true, description = if (fa) "$rewindSeconds ثانیه عقب" else "Back $rewindSeconds seconds") { onSeek((position - rewindSeconds * 1000L).coerceAtLeast(0)) }
                                     Surface(onClick = onToggle, color = Lime, shape = CircleShape, modifier = Modifier.size(64.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) { if (fa) "توقف" else "Pause" } else { if (fa) "پخش" else "Play" }, tint = Ink, modifier = Modifier.size(36.dp)) } }
-                                    IconButton(onClick = { onSeek(position + forwardSeconds * 1000L) }) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Forward, if (fa) "$forwardSeconds ثانیه جلو" else "Forward $forwardSeconds seconds", tint = Color.White, modifier = Modifier.size(32.dp)); Text("$forwardSeconds", color = Color.White, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp) } }
+                                    SkipButton(seconds = forwardSeconds, backwards = false, description = if (fa) "$forwardSeconds ثانیه جلو" else "Forward $forwardSeconds seconds") { onSeek(position + forwardSeconds * 1000L) }
                                     IconButton(onClick = onSkip, enabled = queue.isNotEmpty()) { Icon(Icons.Default.SkipNext, if (fa) "قسمت بعدی" else "Next episode", tint = if (queue.isEmpty()) Color.White.copy(.3f) else Color.White, modifier = Modifier.size(30.dp)) }
                                 }
                             }
@@ -146,6 +156,31 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
         if (current) Icon(Icons.Default.GraphicEq, null, tint = Lime) else {
             Column { IconButton(onClick = { onUp?.invoke() }, enabled = onUp != null, modifier = Modifier.size(25.dp)) { Icon(Icons.Default.KeyboardArrowUp, if (fa) "بالا" else "Move up", tint = Color.White.copy(if (onUp == null) .2f else .8f)) }; IconButton(onClick = { onDown?.invoke() }, enabled = onDown != null, modifier = Modifier.size(25.dp)) { Icon(Icons.Default.KeyboardArrowDown, if (fa) "پایین" else "Move down", tint = Color.White.copy(if (onDown == null) .2f else .8f)) } }
             IconButton(onClick = { onRemove?.invoke() }) { Icon(Icons.Default.Close, if (fa) "حذف از صف" else "Remove from queue", tint = Color.White.copy(.7f)) }
+        }
+    }
+}
+
+/** Mirrored circular arrows with a separate centered number, independent of UI direction. */
+@Composable private fun SkipButton(seconds: Int, backwards: Boolean, description: String, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.semantics { contentDescription = description }) {
+        Box(Modifier.size(36.dp).clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
+            Canvas(Modifier.fillMaxSize()) {
+                val radius = size.minDimension * .37f
+                val cx = center.x; val cy = center.y
+                val start = if (backwards) -45f else -135f
+                val sweep = if (backwards) -270f else 270f
+                drawArc(Color.White, startAngle = start, sweepAngle = sweep, useCenter = false,
+                    topLeft = Offset(cx - radius, cy - radius), size = Size(radius * 2, radius * 2),
+                    style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round))
+                val angle = Math.toRadians((start + sweep).toDouble())
+                val x = cx + radius * kotlin.math.cos(angle).toFloat(); val y = cy + radius * kotlin.math.sin(angle).toFloat()
+                val direction = if (backwards) -1f else 1f
+                val dx = -kotlin.math.sin(angle).toFloat() * direction; val dy = kotlin.math.cos(angle).toFloat() * direction
+                val length = 5.dp.toPx(); val half = 2.8.dp.toPx()
+                val arrow = Path().apply { moveTo(x + dx * length * .5f, y + dy * length * .5f); lineTo(x - dx * length * .6f - dy * half, y - dy * length * .6f + dx * half); lineTo(x - dx * length * .6f + dy * half, y - dy * length * .6f - dx * half); close() }
+                drawPath(arrow, Color.White)
+            }
+            Text("$seconds", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
     }
 }

@@ -15,6 +15,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.animation.core.*
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -43,6 +44,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -63,6 +65,7 @@ class MainActivity : ComponentActivity() {
     private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         FeedRefreshWorker.schedule(applicationContext)
         val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) permission.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -79,7 +82,10 @@ fun PodgirApp(player: MediaController?) {
     val context = LocalContext.current
     val repo = remember { Repository(context.applicationContext) }
     var fa by remember { mutableStateOf(repo.boolean("fa", true)) }
-    var dark by remember { mutableStateOf(repo.boolean("dark", true)) }
+    // Preserve existing users' manual setting; 0 follows the system, 1 is light, 2 is dark.
+    var themeMode by remember { mutableIntStateOf(repo.long("themeMode", if (repo.boolean("dark", true)) 2 else 1).toInt()) }
+    val dark = when (themeMode) { 0 -> isSystemInDarkTheme(); 1 -> false; else -> true }
+    SideEffect { (context as? ComponentActivity)?.window?.let { configureSystemBars(it, dark, true, Color.Transparent, Color.Transparent) } }
     fun t(f: String, e: String) = if (fa) f else e
     val colors = if (dark) darkColorScheme(primary = Color(0xFFD1F36B), onPrimary = Color(0xFF171A0D), primaryContainer = Color(0xFF343D21), background = Color(0xFF101017), surface = Color(0xFF1B1B25), surfaceVariant = Color(0xFF292935), onSurface = Color(0xFFF5F3FA), onSurfaceVariant = Color(0xFFB8B6C2)) else lightColorScheme(primary = Purple, background = Color(0xFFF8F7FC), surface = Color.White, surfaceVariant = Color(0xFFEFEDF7), onSurface = Color(0xFF242136))
     CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides if (fa) LayoutDirection.Rtl else LayoutDirection.Ltr) {
@@ -194,7 +200,7 @@ fun PodgirApp(player: MediaController?) {
                     delay(1000)
                 }
             }
-            Scaffold(modifier = Modifier.statusBarsPadding(), containerColor = MaterialTheme.colorScheme.background, bottomBar = {
+            Scaffold(modifier = Modifier.fillMaxSize().background(colors.background).statusBarsPadding(), containerColor = MaterialTheme.colorScheme.background, bottomBar = {
                 Column {
                     AnimatedVisibility(visible = current != null) {
                         current?.let { e -> MiniPlayer(e, playing, position, duration, onOpen = { expanded = true }, onToggle = { if (playing) player?.pause() else player?.play() }) }
@@ -222,6 +228,7 @@ fun PodgirApp(player: MediaController?) {
                         items(history, key = { it.audio }) { e -> HistoryEpisode(e, repo, fa) { play(e) } }
                     } else if (downloadsPage) {
                         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { downloadsPage = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("بازگشت", "Back")) }; Column { Text(t("مدیریت دانلود", "Download manager"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold); Text(t("فایل‌های شما روی همین دستگاه", "Your files on this device"), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } }
+                        if (downloads.isNotEmpty()) item { DownloadSummary(downloads, repo, fa) { downloads = repo.downloads() } }
                         if (downloads.isEmpty()) item { Message(t("هنوز چیزی دانلود نکرده‌اید.", "No downloads yet.")) }
                         items(downloads, key = { it.audio }) { e -> DownloadCard(e, fa, repo, onPlay = { play(e) }, onRemove = { repo.removeDownload(e); downloads = repo.downloads() }, onRetry = { runCatching { repo.download(e) }.onFailure { error = t("دانلود شروع نشد.", "Could not start download.") }; downloads = repo.downloads() }) }
                         if (error.isNotEmpty()) item { Message(error) }
@@ -282,7 +289,7 @@ fun PodgirApp(player: MediaController?) {
                         }
                         else -> {
                             item { Text(t("تنظیمات", "Settings"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold); Text(t("پادگیر را برای خودت بساز", "Make Podgir yours"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            item { SettingRow(t("حالت شب", "Dark mode"), t("آرام برای چشم‌ها", "Easy on the eyes"), dark) { dark = it; repo.setBoolean("dark", it) } }
+                            item { val modes = listOf(t("همراه با سیستم", "System default"), t("روشن", "Light"), t("تاریک", "Dark")); OptionSetting(t("ظاهر برنامه", "Appearance"), modes[themeMode.coerceIn(0, 2)], modes) { themeMode = it; repo.setLong("themeMode", it.toLong()) } }
                             item { LanguageSetting(fa) { fa = it; repo.setBoolean("fa", it) } }
                             item { SettingRow(t("پخش خودکار قسمت بعدی", "Autoplay next episode"), t("قسمت بعدی در صف", "Next episode in the queue"), autoplay) { autoplay = it; repo.setBoolean("autoplay", it); context.startService(android.content.Intent(context, PlaybackService::class.java).setAction("com.podgir.app.AUTOPLAY")) } }
                             item { SettingRow(t("اعلان قسمت جدید", "New episode notifications"), t("برای پادکست‌های دنبال‌شده", "For followed podcasts"), notifyNew) { notifyNew = it; repo.setBoolean("newEpisodeNotifications", it) } }

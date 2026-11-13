@@ -44,6 +44,7 @@ fun TimedContentScreen(episode: Episode, chaptersMode: Boolean, fa: Boolean, pos
     val active = if (chaptersMode) chapters.indexOfLast { position >= it.startMs } else transcript.indexOfFirst { position >= it.startMs && position < it.endMs }
     LaunchedEffect(active, follow, loading) { if (follow && !loading && active >= 0) listState.animateScrollToItem(active) }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
+        DialogSystemBars(dark = !MaterialTheme.colorScheme.isLightForBars(), status = MaterialTheme.colorScheme.background, navigation = MaterialTheme.colorScheme.background)
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp)) {
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -77,4 +78,9 @@ fun TimedContentScreen(episode: Episode, chaptersMode: Boolean, fa: Boolean, pos
         Spacer(Modifier.width(14.dp))
         Text(text, modifier = Modifier.weight(1f), fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
     }
+}
+
+private fun ColorScheme.isLightForBars(): Boolean {
+    val c = background
+    return (0.2126f * c.red + 0.7152f * c.green + 0.0722f * c.blue) > .5f
 }

@@ -96,6 +96,14 @@ class Repository(private val context: Context) {
         prefs.edit().putLong("download:${e.audio}", id).putString("downloads", JSONArray((downloads() + e).map { it.json() }).toString()).apply()
     }
     fun downloadId(e: Episode) = prefs.getLong("download:${e.audio}", -1)
+    fun completedDownloadBytes(e: Episode): Long {
+        val id = downloadId(e); if (id == -1L) return 0
+        val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        return dm.query(DownloadManager.Query().setFilterById(id)).use { c ->
+            if (!c.moveToFirst() || c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)) != DownloadManager.STATUS_SUCCESSFUL) 0L
+            else c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)).coerceAtLeast(0L)
+        }
+    }
     fun downloadStatus(e: Episode): Int {
         val id = downloadId(e); if (id == -1L) return 0
         val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
