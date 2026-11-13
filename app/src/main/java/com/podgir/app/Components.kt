@@ -33,7 +33,7 @@ import kotlinx.coroutines.delay
                 Column(Modifier.weight(1f)) { Text(e.title, color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(e.podcast, color = Color.White.copy(.65f), style = MaterialTheme.typography.labelSmall, maxLines = 1) }
                 IconButton(onClick = onToggle) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) "Pause" else "Play", tint = Color.White, modifier = Modifier.size(30.dp)) }
             }
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) { LinearProgressIndicator(progress = { if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f }, modifier = Modifier.fillMaxWidth().height(3.dp), color = NeonCyan, trackColor = Color.White.copy(.18f)) }
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) { LinearProgressIndicator(progress = { if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f }, modifier = Modifier.fillMaxWidth().height(3.dp), color = PlayGreen, trackColor = Color.White.copy(.18f)) }
         }
     }
 }
@@ -42,7 +42,7 @@ import kotlinx.coroutines.delay
     Column(Modifier.width(150.dp).clickable(onClick = onClick)) {
         Box {
             AsyncImage(model = p.image, contentDescription = null, modifier = Modifier.size(150.dp).clip(RoundedCornerShape(19.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentScale = ContentScale.Crop)
-            Surface(color = NeonCyan, shape = CircleShape, modifier = Modifier.align(Alignment.BottomEnd).padding(9.dp).size(32.dp), shadowElevation = 4.dp) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.PlayArrow, null, tint = Color(0xFF071C23), modifier = Modifier.size(22.dp)) } }
+            Surface(color = PlayGreen, shape = CircleShape, modifier = Modifier.align(Alignment.BottomEnd).padding(9.dp).size(32.dp), shadowElevation = 4.dp) { Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.PlayArrow, null, tint = Color(0xFF071C23), modifier = Modifier.size(22.dp)) } }
         }
         Spacer(Modifier.height(10.dp))
         Text(p.title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
@@ -114,7 +114,7 @@ import kotlinx.coroutines.delay
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) { LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(3.dp).clip(CircleShape)) }
             }
             Spacer(Modifier.width(8.dp)); Text(if (duration > 0) "${(progress * 100).toInt()}%" else if (fa) "ادامه" else "Resume", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-            Icon(Icons.Default.PlayArrow, if (fa) "پخش" else "Play", tint = MaterialTheme.colorScheme.primary)
+            Icon(Icons.Default.PlayArrow, if (fa) "پخش" else "Play", tint = MaterialTheme.colorScheme.onSurface)
         }
     }
 }

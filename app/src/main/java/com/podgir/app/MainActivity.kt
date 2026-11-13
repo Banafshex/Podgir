@@ -87,7 +87,7 @@ fun PodgirApp(player: MediaController?) {
     val dark = when (themeMode) { 0 -> isSystemInDarkTheme(); 1 -> false; else -> true }
     SideEffect { (context as? ComponentActivity)?.window?.let { configureSystemBars(it, dark, true, Color.Transparent, Color.Transparent) } }
     fun t(f: String, e: String) = if (fa) f else e
-    val colors = if (dark) darkColorScheme(primary = NeonCyan, onPrimary = Color(0xFF071C23), primaryContainer = Color(0xFF253049), onPrimaryContainer = Color(0xFFDDEAFF), background = Color(0xFF0B0E1A), surface = Color(0xFF161B2C), surfaceVariant = Color(0xFF252B40), onSurface = Color(0xFFF1F3FC), onSurfaceVariant = Color(0xFFB9C1D3)) else lightColorScheme(primary = Purple, primaryContainer = Color(0xFFE3E4FF), onPrimaryContainer = Color(0xFF1B2057), background = Color(0xFFF5F6FC), surface = Color.White, surfaceVariant = Color(0xFFEAEDF7), onSurface = Color(0xFF1B2034))
+    val colors = if (dark) darkColorScheme(primary = NeonCyan, onPrimary = Color(0xFF071C23), primaryContainer = Color(0xFF253049), onPrimaryContainer = Color(0xFFDDEAFF), background = Color(0xFF0B0E1A), surface = Color(0xFF252E45), surfaceVariant = Color(0xFF303A53), onSurface = Color(0xFFF1F3FC), onSurfaceVariant = Color(0xFFB9C1D3)) else lightColorScheme(primary = Purple, primaryContainer = Color(0xFFE3E4FF), onPrimaryContainer = Color(0xFF1B2057), background = Color(0xFFE9EDF7), surface = Color.White, surfaceVariant = Color(0xFFEAEDF7), onSurface = Color(0xFF1B2034))
     CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides if (fa) LayoutDirection.Rtl else LayoutDirection.Ltr) {
         MaterialTheme(colorScheme = colors, typography = if (fa) persianTypography() else Typography()) {
             var tab by remember { mutableStateOf(0) }
@@ -110,6 +110,9 @@ fun PodgirApp(player: MediaController?) {
             var historyPage by remember { mutableStateOf(false) }
             var queue by remember { mutableStateOf(repo.queue()) }
             var downloadsPage by remember { mutableStateOf(false) }
+            var downloadSettingsPage by remember { mutableStateOf(false) }
+            var infoPodcast by remember { mutableStateOf<Podcast?>(null) }
+            var lastBackPress by remember { mutableLongStateOf(0L) }
             var current by remember { mutableStateOf(repo.lastEpisode()) }
             var playing by remember { mutableStateOf(false) }
             var position by remember { mutableLongStateOf(0L) }
@@ -122,6 +125,7 @@ fun PodgirApp(player: MediaController?) {
             var expanded by remember { mutableStateOf(false) }
             var sleepMinutes by remember { mutableIntStateOf(if (repo.long("sleepDeadline") > System.currentTimeMillis()) ((repo.long("sleepDeadline") - System.currentTimeMillis()) / 60000L).toInt().coerceAtLeast(1) else 0) }
             var wifiOnly by remember { mutableStateOf(repo.boolean("wifiOnly", false)) }
+            var downloadsPublic by remember { mutableStateOf(repo.boolean("downloadsPublic", false) && Build.VERSION.SDK_INT >= 29) }
             var autoplay by remember { mutableStateOf(repo.boolean("autoplay", true)) }
             var notifyNew by remember { mutableStateOf(repo.boolean("newEpisodeNotifications", true)) }
             var reminder by remember { mutableStateOf(repo.boolean("listeningReminder", false)) }
@@ -179,7 +183,23 @@ fun PodgirApp(player: MediaController?) {
                         pendingBackup = null; toast(t("کتابخانه بازیابی شد.", "Library restored."))
                     }) { Text(t("بازیابی", "Restore")) } }, dismissButton = { TextButton(onClick = { pendingBackup = null }) { Text(t("انصراف", "Cancel")) } })
             }
-            BackHandler(enabled = selected != null || expanded || downloadsPage || historyPage || savedPage != 0) { if (expanded) expanded = false else if (savedPage != 0) savedPage = 0 else if (historyPage) historyPage = false else if (downloadsPage) downloadsPage = false else { selected = null; error = "" } }
+            BackHandler {
+                if (expanded || infoPodcast != null || savedPage != 0 || historyPage || downloadsPage || downloadSettingsPage || selected != null) lastBackPress = 0L
+                when {
+                    expanded -> expanded = false
+                    infoPodcast != null -> infoPodcast = null
+                    savedPage != 0 -> savedPage = 0
+                    historyPage -> historyPage = false
+                    downloadsPage -> downloadsPage = false
+                    downloadSettingsPage -> downloadSettingsPage = false
+                    selected != null -> { request?.cancel(); selected = null; error = ""; loading = false }
+                    else -> {
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (lastBackPress != 0L && now - lastBackPress <= 2000L) (context as? ComponentActivity)?.finish()
+                        else { lastBackPress = now; android.widget.Toast.makeText(context, t("برای خروج دوباره بازگشت را بزنید", "Press back again to exit"), android.widget.Toast.LENGTH_SHORT).show() }
+                    }
+                }
+            }
             fun search(q: String, includeEpisodes: Boolean = true) {
                 request?.cancel(); episodeResults = emptyList(); episodeSearchDone = false; episodeSearchLoading = false
                 request = scope.launch {
@@ -244,13 +264,20 @@ fun PodgirApp(player: MediaController?) {
                     NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                         val labels = listOf(t("خانه", "Home"), t("جست‌وجو", "Search"), t("کتابخانه", "Library"), t("تنظیمات", "Settings"))
                         val icons = listOf(Icons.Default.Home, Icons.Default.Search, Icons.Default.LibraryMusic, Icons.Default.Settings)
-                        labels.forEachIndexed { i, label -> NavigationBarItem(selected = tab == i && selected == null, onClick = { tab = i; selected = null; downloadsPage = false; historyPage = false; savedPage = 0; error = "" }, icon = { Icon(icons[i], label) }, label = { Text(label, fontSize = 10.sp) }) }
+                        labels.forEachIndexed { i, label -> NavigationBarItem(selected = tab == i && selected == null, onClick = { tab = i; selected = null; downloadsPage = false; downloadSettingsPage = false; historyPage = false; savedPage = 0; lastBackPress = 0L; error = "" }, icon = { Icon(icons[i], label) }, label = { Text(label, fontSize = 10.sp) }) }
                     }
                 }
             }) { padding ->
                 LazyColumn(contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 24.dp), modifier = Modifier.fillMaxSize().padding(padding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     val detail = selected
-                    if (savedPage == 1) {
+                    if (downloadSettingsPage) {
+                        item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { downloadSettingsPage = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("بازگشت", "Back")) }; Text(t("تنظیمات دانلود", "Download settings"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) } }
+                        item { val choices = listOf(t("فقط وای‌فای", "Wi-Fi only"), t("وای‌فای و اینترنت همراه", "Wi-Fi and mobile data")); OptionSetting(t("شبکهٔ دانلود", "Download network"), choices[if (wifiOnly) 0 else 1], choices) { i -> wifiOnly = i == 0; repo.setBoolean("wifiOnly", wifiOnly) } }
+                        if (Build.VERSION.SDK_INT >= 29) item { val choices = listOf(t("حافظهٔ اختصاصی برنامه", "App-specific storage"), t("پوشهٔ Downloads دستگاه", "Device Downloads folder")); OptionSetting(t("محل ذخیرهٔ فایل", "File location"), choices[if (downloadsPublic) 1 else 0], choices) { i -> downloadsPublic = i == 1; repo.setBoolean("downloadsPublic", downloadsPublic) } }
+                        else item { Message(t("در این نسخهٔ اندروید فایل‌ها در حافظهٔ اختصاصی برنامه ذخیره می‌شوند.", "On this Android version, files are saved in app-specific storage.")) }
+                        item { SavedEntry(t("کیفیت فایل", "Audio quality"), t("کیفیت اصلی ناشر", "Original publisher quality"), Icons.Default.HighQuality) { toast(t("هر قسمت با فایل اصلی ارائه‌شده در فید دریافت می‌شود؛ این نسخه انتخاب کیفیت جایگزین را پشتیبانی نمی‌کند.", "Episodes use the original file provided by the feed; this version does not support choosing an alternative quality.")) } }
+                        item { Message(t("تنظیمات شبکه و محل ذخیره فقط برای دانلودهای جدید اعمال می‌شوند. کیفیت را ناشر تعیین می‌کند و برنامه فایل را تبدیل نمی‌کند.", "Network and location settings apply to new downloads only. Quality is determined by the publisher; files are not transcoded.")) }
+                    } else if (savedPage == 1) {
                         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { savedPage = 0 }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("بازگشت", "Back")) }; Text(t("علاقه‌مندی‌ها", "Favorites"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) } }
                         if (favorites.isEmpty()) item { Message(t("هنوز قسمتی را دوست نداشته‌اید.", "No favorite episodes yet.")) }
                         items(favorites, key = { it.audio }) { e -> HistoryEpisode(e, repo, fa) { play(e) } }
@@ -272,6 +299,7 @@ fun PodgirApp(player: MediaController?) {
                         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { selected = null; error = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("بازگشت", "Back")) }; Text(t("پادکست", "PODCAST"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary) } }
                         item { Row(verticalAlignment = Alignment.CenterVertically) { Cover(detail.image, 112); Spacer(Modifier.width(18.dp)); Column { Text(detail.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Spacer(Modifier.height(6.dp)); Text(detail.author, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(12.dp)); Button(onClick = { val wasFollowing = subscriptions.any { it.feed == detail.feed }; repo.toggle(detail); subscriptions = repo.subscriptions(); if (!wasFollowing && episodes.isNotEmpty()) repo.setSeenEpisode(detail, episodes.first().audio); autoFeed = repo.autoDownload(detail) }, shape = RoundedCornerShape(14.dp)) { Text(if (subscriptions.any { it.feed == detail.feed }) t("دنبال می‌کنید ✓", "Following ✓") else t("دنبال کردن +", "Follow +")) } } } }
                         if (subscriptions.any { it.feed == detail.feed }) item { SettingRow(t("دانلود خودکار قسمت‌های جدید", "Automatically download new episodes"), t("بررسی دوره‌ای؛ حداکثر ۳ قسمت جدید در هر نوبت", "Periodic check; up to 3 new episodes per check"), autoFeed) { autoFeed = it; repo.setAutoDownload(detail, it) } }
+                        item { OutlinedButton(onClick = { infoPodcast = detail }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Info, null); Spacer(Modifier.width(8.dp)); Text(t("دربارهٔ پادکست", "About this podcast")) } }
                         item { SectionTitle(t("قسمت‌ها", "Episodes"), "${episodes.size}") }
                         if (loading) item { Loading() }
                         if (error.isNotEmpty()) item { Message(error) }
@@ -333,7 +361,7 @@ fun PodgirApp(player: MediaController?) {
                             item { SettingRow(t("اعلان قسمت جدید", "New episode notifications"), t("برای پادکست‌های دنبال‌شده", "For followed podcasts"), notifyNew) { notifyNew = it; repo.setBoolean("newEpisodeNotifications", it) } }
                             item { SettingRow(t("یادآور شنیدن", "Listening reminder"), t("تقریباً روزانه؛ زمان دقیق وابسته به اندروید", "Approximately daily; timing depends on Android"), reminder) { reminder = it; repo.setBoolean("listeningReminder", it); ReminderWorker.configure(context, it) } }
                             if ((notifyNew || reminder) && !notificationsAllowed) item { Column { Message(t("اعلان‌های پادگیر در تنظیمات اندروید غیرفعال‌اند.", "Podgir notifications are disabled in Android settings.")); TextButton(onClick = { val intent = if (Build.VERSION.SDK_INT >= 26) android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName) else android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + context.packageName)); context.startActivity(intent) }) { Text(t("تنظیمات اعلان", "Notification settings")) } } }
-                            item { SettingRow(t("دانلود فقط با وای‌فای", "Downloads on Wi-Fi only"), t("برای دانلودهای جدید", "For new downloads"), wifiOnly) { wifiOnly = it; repo.setBoolean("wifiOnly", it) } }
+                            item { SavedEntry(t("تنظیمات دانلود", "Download settings"), t("شبکه، محل ذخیره و کیفیت", "Network, location and quality"), Icons.Default.Download) { downloadSettingsPage = true } }
                             item { val values = (2..12).map { it * 25 }; OptionSetting(t("سرعت پیش‌فرض", "Default speed"), "${defaultSpeed / 100f}×", values.map { "${it / 100f}×" }) { i -> defaultSpeed = values[i]; repo.setLong("defaultSpeed", defaultSpeed.toLong()); speed = defaultSpeed / 100f; player?.setPlaybackSpeed(speed) } }
                             item { val values = listOf(5, 10, 15, 20, 30, 45, 60); OptionSetting(t("پرش به عقب", "Skip backward"), "$rewindSeconds s", values.map { "$it s" }) { i -> rewindSeconds = values[i]; repo.setLong("rewindSeconds", rewindSeconds.toLong()) } }
                             item { val values = listOf(5, 10, 15, 20, 30, 45, 60); OptionSetting(t("پرش به جلو", "Skip forward"), "$forwardSeconds s", values.map { "$it s" }) { i -> forwardSeconds = values[i]; repo.setLong("forwardSeconds", forwardSeconds.toLong()) } }
@@ -342,6 +370,7 @@ fun PodgirApp(player: MediaController?) {
                     }
                 }
             }
+            infoPodcast?.let { p -> PodcastInfoDialog(p, fa, repo) { infoPodcast = null } }
             if (expanded && current != null) PlayerScreen(
                 episode = current!!, fa = fa, playing = playing, position = position, duration = duration, speed = speed, sleepMinutes = sleepMinutes, queue = queue,
                 rewindSeconds = rewindSeconds, forwardSeconds = forwardSeconds, favorite = favorites.any { it.audio == current?.audio }, downloadStatus = currentDownloadStatus,
@@ -412,7 +441,7 @@ private fun formatTime(ms: Long): String { val s = TimeUnit.MILLISECONDS.toSecon
         Row(verticalAlignment = Alignment.CenterVertically) { Cover(e.image, 54); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(e.title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis); Text(e.date, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) } }
         if (e.description.isNotBlank()) { Spacer(Modifier.height(10.dp)); Text(e.description, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onPlay, modifier = Modifier.weight(1f)) { Icon(Icons.Default.PlayCircle, null); Spacer(Modifier.width(5.dp)); Text(if (fa) "پخش" else "Play") }
+            Button(onClick = onPlay, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = PlayGreen, contentColor = Color(0xFF182512))) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(5.dp)); Text(if (fa) "پخش" else "Play") }
             IconButton(onClick = onQueue, enabled = !queued) { Icon(if (queued) Icons.Default.CheckCircle else Icons.Default.PlaylistAdd, if (fa) "افزودن به صف" else "Add to queue", tint = if (queued) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
             IconButton(onClick = onDownload, enabled = status == 0 || status == DownloadManager.STATUS_FAILED) { Icon(if (status == DownloadManager.STATUS_SUCCESSFUL) Icons.Default.CheckCircle else Icons.Default.Download, if (fa) "دانلود" else "Download", tint = if (status == DownloadManager.STATUS_SUCCESSFUL) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
         }

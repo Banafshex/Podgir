@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 
 val NeonCyan = Color(0xFF7CF4E8)
+val PlayGreen = Color(0xFFB9E88D)
 val NeonViolet = Color(0xFFAE8AFF)
 private val Vazirmatn = FontFamily(
     Font(R.font.vazirmatn_regular, FontWeight.Normal),
@@ -37,12 +38,12 @@ fun persianTypography(): Typography {
 /** Low contrast ambient light, drawn behind text and without additional image assets. */
 @Composable fun PlayerAmbientBackground(modifier: Modifier = Modifier) {
     val motion = rememberInfiniteTransition(label = "ambient")
-    val phase by motion.animateFloat(0f, 1f, infiniteRepeatable(tween(9500, easing = LinearEasing), RepeatMode.Reverse), label = "ambient drift")
+    val phase by motion.animateFloat(0f, 1f, infiniteRepeatable(tween(6500, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "ambient drift")
     Canvas(modifier.fillMaxSize()) {
         val w = size.width; val h = size.height
         drawRect(Brush.verticalGradient(listOf(Color(0xFF161B35), Color(0xFF101222), Color(0xFF0B0D17))))
-        drawRect(Brush.radialGradient(listOf(Color(0xFF6051A5).copy(alpha = .34f), Color.Transparent), center = Offset(w * (.15f + .12f * phase), h * .20f), radius = w * .9f))
-        drawRect(Brush.radialGradient(listOf(Color(0xFF2D918D).copy(alpha = .20f), Color.Transparent), center = Offset(w * (.92f - .12f * phase), h * (.38f + .04f * phase)), radius = w * .8f))
-        drawRect(Brush.radialGradient(listOf(Color(0xFF8F4C86).copy(alpha = .13f), Color.Transparent), center = Offset(w * (.35f + .10f * phase), h * .76f), radius = w * .85f))
+        drawRect(Brush.radialGradient(listOf(Color(0xFF7564D4).copy(alpha = .46f), Color.Transparent), center = Offset(w * (-.12f + 1.15f * phase), h * (.17f + .12f * phase)), radius = w * 1.05f))
+        drawRect(Brush.radialGradient(listOf(Color(0xFF329C9D).copy(alpha = .29f), Color.Transparent), center = Offset(w * (1.05f - 1.05f * phase), h * (.48f - .12f * phase)), radius = w * .9f))
+        drawRect(Brush.radialGradient(listOf(Color(0xFF9D4C94).copy(alpha = .18f), Color.Transparent), center = Offset(w * (.05f + .75f * phase), h * .76f), radius = w * .85f))
     }
 }

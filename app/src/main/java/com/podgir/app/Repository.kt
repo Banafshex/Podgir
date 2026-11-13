@@ -109,7 +109,13 @@ class Repository(private val context: Context) {
         }
         val request = DownloadManager.Request(Uri.parse(e.audio)).setTitle(e.title)
             .setDescription(e.podcast).setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_PODCASTS, "${System.currentTimeMillis()}-${e.audio.hashCode()}.audio")
+        val extension = Uri.parse(e.audio).lastPathSegment?.substringAfterLast('.', "")?.lowercase()?.takeIf { it in setOf("mp3", "m4a", "mp4", "ogg", "opus", "wav", "aac", "flac") } ?: "audio"
+        val name = "Podgir-${System.currentTimeMillis()}-${e.audio.hashCode()}.$extension"
+        if (boolean("downloadsPublic", false) && android.os.Build.VERSION.SDK_INT >= 29) {
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+        } else {
+            request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_PODCASTS, name)
+        }
         if (boolean("wifiOnly", false)) request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
         val id = (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
         prefs.edit().putLong("download:${e.audio}", id).putString("downloads", JSONArray((downloads() + e).map { it.json() }).toString()).apply()
@@ -152,6 +158,11 @@ class Repository(private val context: Context) {
                 out.toString("UTF-8")
             }
         } finally { conn.disconnect() }
+    }
+    suspend fun podcastDescription(p: Podcast): String = withContext(Dispatchers.IO) {
+        val parser = Xml.newPullParser(); parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true); parser.setInput(read(p.feed).reader())
+        val raw = channelDescription(parser)
+        androidx.core.text.HtmlCompat.fromHtml(raw, androidx.core.text.HtmlCompat.FROM_HTML_MODE_COMPACT).toString().trim()
     }
     suspend fun chapters(url: String): List<Chapter> = withContext(Dispatchers.IO) { parseChapters(read(url, 2 * 1024 * 1024)) }
     suspend fun transcript(url: String): List<TranscriptCue> = withContext(Dispatchers.IO) { parseTimedTranscript(read(url, 2 * 1024 * 1024)) }

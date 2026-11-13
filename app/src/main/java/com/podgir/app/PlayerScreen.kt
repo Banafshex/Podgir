@@ -7,6 +7,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.ScrollState
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -44,7 +49,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import java.util.concurrent.TimeUnit
 
-private val PlayerAccent = NeonCyan
+private val PlayerAccent = PlayGreen
 private val Ink = Color(0xFF071A22)
 private fun clock(ms: Long): String { val s = TimeUnit.MILLISECONDS.toSeconds(ms.coerceAtLeast(0)); return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s % 3600 / 60, s % 60) else "%d:%02d".format(s / 60, s % 60) }
 
@@ -90,7 +95,11 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                     BoxWithConstraints(Modifier.fillMaxSize()) {
                         // A scrollable layout keeps every control reachable on small screens and with large text.
                         val artwork = (maxWidth - 80.dp).coerceAtMost(maxHeight * .30f).coerceAtMost(300.dp).coerceAtLeast(120.dp)
-                        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        val scrollState = rememberScrollState()
+                        val latestClose by rememberUpdatedState(onClose)
+                        Column(Modifier.fillMaxSize().swipeDownToClose(scrollState) { latestClose() }.verticalScroll(scrollState).padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Spacer(Modifier.height(8.dp))
+                            Box(Modifier.width(38.dp).height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .32f)))
                             Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(onClick = onClose) { Icon(Icons.Default.KeyboardArrowDown, if (fa) "بستن پخش‌کننده" else "Close player", tint = Color.White, modifier = Modifier.size(30.dp)) }
                                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) { Text(if (fa) "در حال شنیدن" else "NOW PLAYING", color = Color.White.copy(.65f), style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp); Text(episode.podcast, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center) }
@@ -185,5 +194,24 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
             }
             Text("$seconds", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
+    }
+}
+
+/** Observe a deliberate downward gesture without consuming slider or scroll events. */
+private fun Modifier.swipeDownToClose(scroll: ScrollState, onClose: () -> Unit): Modifier = pointerInput(scroll) {
+    val threshold = 84.dp.toPx()
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        val startedAtTop = scroll.value == 0
+        var last = down.position
+        do {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            val change = event.changes.firstOrNull { it.id == down.id }
+            if (change != null) last = change.position
+            val pressed = change?.pressed == true
+        } while (pressed)
+        val dy = last.y - down.position.y
+        val dx = kotlin.math.abs(last.x - down.position.x)
+        if (startedAtTop && scroll.value == 0 && dy > threshold && dy > dx * 1.5f) onClose()
     }
 }

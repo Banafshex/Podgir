@@ -24,6 +24,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling:1.7.6")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    testImplementation("net.sf.kxml:kxml2:2.3.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
