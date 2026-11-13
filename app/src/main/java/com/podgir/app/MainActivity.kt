@@ -88,6 +88,10 @@ fun PodgirApp(player: MediaController?) {
             var selected by remember { mutableStateOf<Podcast?>(null) }
             var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
             var results by remember { mutableStateOf<List<Podcast>>(emptyList()) }
+            var episodeResults by remember { mutableStateOf<List<Episode>>(emptyList()) }
+            var episodeSearchLoading by remember { mutableStateOf(false) }
+            var episodeSearchDone by remember { mutableStateOf(false) }
+            var episodeSearchErrors by remember { mutableIntStateOf(0) }
             var query by remember { mutableStateOf("") }
             var loading by remember { mutableStateOf(false) }
             var error by remember { mutableStateOf("") }
@@ -134,8 +138,20 @@ fun PodgirApp(player: MediaController?) {
                 }
             }
             BackHandler(enabled = selected != null || expanded || downloadsPage || historyPage || savedPage != 0) { if (expanded) expanded = false else if (savedPage != 0) savedPage = 0 else if (historyPage) historyPage = false else if (downloadsPage) downloadsPage = false else { selected = null; error = "" } }
-            fun search(q: String) { request?.cancel(); request = scope.launch { loading = true; error = ""; try { results = repo.search(q) } catch (ex: Exception) { if (ex is kotlinx.coroutines.CancellationException) throw ex; error = t("دریافت اطلاعات ممکن نشد. اتصال اینترنت را بررسی کنید.", "Could not load podcasts. Check your connection.") }; loading = false } }
-            fun open(p: Podcast) { request?.cancel(); autoFeed = repo.autoDownload(p); selected = p; episodes = emptyList(); request = scope.launch { loading = true; error = ""; try { episodes = repo.episodes(p) } catch (ex: Exception) { if (ex is kotlinx.coroutines.CancellationException) throw ex; error = t("دریافت قسمت‌ها ممکن نشد.", "Could not load episodes.") }; loading = false } }
+            fun search(q: String, includeEpisodes: Boolean = true) {
+                request?.cancel(); episodeResults = emptyList(); episodeSearchDone = false; episodeSearchLoading = false
+                request = scope.launch {
+                    loading = true; error = ""
+                    try { results = repo.search(q) } catch (ex: Exception) { if (ex is kotlinx.coroutines.CancellationException) throw ex; results = emptyList(); error = t("دریافت پادکست‌ها ممکن نشد. اتصال اینترنت را بررسی کنید.", "Could not load podcasts. Check your connection.") }
+                    loading = false
+                    if (includeEpisodes && subscriptions.isNotEmpty()) {
+                        episodeSearchLoading = true
+                        val (found, failures) = repo.searchFollowedEpisodes(q, subscriptions)
+                        episodeResults = found; episodeSearchErrors = failures; episodeSearchDone = true; episodeSearchLoading = false
+                    }
+                }
+            }
+            fun open(p: Podcast) { request?.cancel(); episodeSearchLoading = false; autoFeed = repo.autoDownload(p); selected = p; episodes = emptyList(); request = scope.launch { loading = true; error = ""; try { episodes = repo.episodes(p) } catch (ex: Exception) { if (ex is kotlinx.coroutines.CancellationException) throw ex; error = t("دریافت قسمت‌ها ممکن نشد.", "Could not load episodes.") }; loading = false } }
             fun item(e: Episode): MediaItem {
                 val metadata = MediaMetadata.Builder().setTitle(e.title).setArtist(e.podcast).setArtworkUri(android.net.Uri.parse(e.image)).build()
                 return MediaItem.Builder().setUri(repo.playbackUri(e)).setMediaId(e.audio).setMediaMetadata(metadata).build()
@@ -164,7 +180,7 @@ fun PodgirApp(player: MediaController?) {
                     player.prepare(); player.seekTo(repo.position(e.audio))
                 }
             }
-            LaunchedEffect(Unit) { search("پادکست فارسی") }
+            LaunchedEffect(Unit) { search("پادکست فارسی", false) }
             LaunchedEffect(player) {
                 while (true) {
                     if (player != null) {
@@ -229,7 +245,7 @@ fun PodgirApp(player: MediaController?) {
                             item { SectionTitle(t("برای شروع گوش دادن", "Find your next listen"), t("فارسی", "Persian")) }
                             item { Text(t("چند پیشنهاد برای کشف دنیای پادکست‌های فارسی", "Explore a selection of Persian podcasts"), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium) }
                             if (loading) item { Loading() }
-                            if (error.isNotEmpty()) item { Message(error); TextButton(onClick = { search("پادکست فارسی") }) { Text(t("تلاش دوباره", "Try again")) } }
+                            if (error.isNotEmpty()) item { Message(error); TextButton(onClick = { search("پادکست فارسی", false) }) { Text(t("تلاش دوباره", "Try again")) } }
                             if (results.isNotEmpty()) item { LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) { items(results.take(12), key = { it.feed }) { p -> FeaturedPodcast(p) { open(p) } } } }
                             item { SectionTitle(t("بیشتر کشف کنید", "More to discover"), "") }
                             items(results.drop(12).take(12), key = { it.feed }) { p -> PodcastRow(p) { open(p) } }
@@ -241,8 +257,15 @@ fun PodgirApp(player: MediaController?) {
                             if (loading) item { Loading() }
                             if (error.isNotEmpty()) item { Message(error) }
                             if (!loading && error.isEmpty() && results.isEmpty()) item { Message(t("نتیجه‌ای پیدا نشد.", "No podcasts found.")) }
+                            if (results.isNotEmpty()) item { SectionTitle(t("پادکست‌ها", "Podcasts"), "${results.size}") }
                             items(results, key = { it.feed }) { p -> PodcastRow(p) { open(p) } }
-                            item { Text(t("نتایج جست‌وجو از Apple Podcasts ارائه می‌شوند.", "Search results provided by Apple Podcasts."), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            if (episodeSearchLoading || episodeSearchDone) item { SectionTitle(t("قسمت‌های دنبال‌شده", "Episodes from followed podcasts"), "${episodeResults.size}") }
+                            if (episodeSearchLoading) item { Loading() }
+                            if (episodeSearchDone) item { Text(t("جست‌وجو در حداکثر ۲۰ فید و ۲۰۰ قسمت اخیر هر فید انجام می‌شود.", "Search covers up to 20 followed feeds and their latest 200 episodes."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            if (episodeSearchDone && episodeSearchErrors > 0) item { Message(t("$episodeSearchErrors فید در دسترس نبود؛ نتایج ممکن است ناقص باشند.", "$episodeSearchErrors feeds could not be loaded; results may be incomplete.")) }
+                            if (episodeSearchDone && episodeResults.isEmpty()) item { Message(t("قسمت مرتبطی در فیدهای قابل دریافت پیدا نشد.", "No matching episodes were found in available feeds.")) }
+                            items(episodeResults, key = { "search:" + it.audio }) { e -> EpisodeCard(e, fa, repo, onPlay = { play(e) }, onQueue = { if (current?.audio != e.audio && queue.none { it.audio == e.audio }) setQueue(queue + e) }, queued = queue.any { it.audio == e.audio }, onDownload = { runCatching { repo.download(e) }.onFailure { error = t("دانلود شروع نشد.", "Could not start download.") }; downloads = repo.downloads() }) }
+                            item { Text(t("نتایج پادکست‌ها از Apple Podcasts ارائه می‌شوند.", "Podcast results provided by Apple Podcasts."), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                         2 -> {
                             item { Text(t("کتابخانهٔ من", "Your library"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold); Text(t("همهٔ صداهای محبوبت، یک‌جا", "All your favorite voices in one place"), color = MaterialTheme.colorScheme.onSurfaceVariant) }

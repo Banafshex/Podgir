@@ -43,6 +43,7 @@ private fun clock(ms: Long): String { val s = TimeUnit.MILLISECONDS.toSeconds(ms
 @Composable
 fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long, duration: Long, speed: Float, sleepMinutes: Int, queue: List<Episode>, onClose: () -> Unit, onToggle: () -> Unit, onSeek: (Long) -> Unit, onSpeed: () -> Unit, onSleep: () -> Unit, rewindSeconds: Int, forwardSeconds: Int, favorite: Boolean, downloadStatus: Int, onFavorite: () -> Unit, onDownload: () -> Unit, onBookmark: (Long, String) -> Unit, onShare: () -> Unit, onPrevious: () -> Unit, onSkip: () -> Unit, onRemove: (Episode) -> Unit, onMove: (Int, Int) -> Unit) {
     var showQueue by remember { mutableStateOf(false) }
+    var timedPage by remember { mutableIntStateOf(0) }
     var showBookmark by remember { mutableStateOf(false) }
     var bookmarkPosition by remember { mutableLongStateOf(0L) }
     var note by remember { mutableStateOf("") }
@@ -122,6 +123,10 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                                 IconButton(onClick = onDownload, enabled = downloadStatus == 0 || downloadStatus == android.app.DownloadManager.STATUS_FAILED) { Icon(if (downloadStatus == android.app.DownloadManager.STATUS_SUCCESSFUL) Icons.Default.CheckCircle else Icons.Default.Download, if (fa) "دانلود" else "Download", tint = if (downloadStatus == android.app.DownloadManager.STATUS_SUCCESSFUL) Lime else Color.White.copy(.8f)) }
                                 IconButton(onClick = onShare) { Icon(Icons.Default.Share, if (fa) "اشتراک‌گذاری فایل صوتی" else "Share audio link", tint = Color.White.copy(.8f)) }
                             }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                TextButton(onClick = { timedPage = 1 }) { Icon(Icons.Default.ViewList, null, tint = Color.White.copy(.8f)); Spacer(Modifier.width(6.dp)); Text(if (fa) "فصل‌ها" else "Chapters", color = Color.White.copy(.8f)) }
+                                TextButton(onClick = { timedPage = 2 }) { Icon(Icons.Default.Subtitles, null, tint = Color.White.copy(.8f)); Spacer(Modifier.width(6.dp)); Text(if (fa) "متن قسمت" else "Transcript", color = Color.White.copy(.8f)) }
+                            }
                             Spacer(Modifier.height(24.dp))
                         }
                     }
@@ -129,6 +134,7 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
             }
         }
     }
+    if (timedPage != 0) TimedContentScreen(episode, timedPage == 1, fa, position, onSeek, onClose = { timedPage = 0 })
     if (showBookmark) AlertDialog(onDismissRequest = { showBookmark = false }, title = { Text(if (fa) "ذخیرهٔ لحظه" else "Save moment") }, text = { Column { Text(clock(bookmarkPosition)); Spacer(Modifier.height(12.dp)); OutlinedTextField(value = note, onValueChange = { if (it.length <= 500) note = it }, label = { Text(if (fa) "یادداشت (اختیاری)" else "Note (optional)") }, maxLines = 4) } }, confirmButton = { TextButton(onClick = { onBookmark(bookmarkPosition, note); note = ""; showBookmark = false }) { Text(if (fa) "ذخیره" else "Save") } }, dismissButton = { TextButton(onClick = { showBookmark = false }) { Text(if (fa) "انصراف" else "Cancel") } })
 }
 

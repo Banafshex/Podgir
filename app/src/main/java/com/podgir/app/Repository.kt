@@ -6,6 +6,12 @@ import android.net.Uri
 import android.os.Environment
 import android.util.Xml
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -17,9 +23,9 @@ import java.net.URL
     fun json() = JSONObject().put("title", title).put("author", author).put("image", image).put("feed", feed)
     companion object { fun from(j: JSONObject) = Podcast(j.optString("title"), j.optString("author"), j.optString("image"), j.optString("feed")) }
 }
-data class Episode(val title: String, val description: String, val audio: String, val date: String, val image: String, val podcast: String) {
-    fun json() = JSONObject().put("title", title).put("description", description).put("audio", audio).put("date", date).put("image", image).put("podcast", podcast)
-    companion object { fun from(j: JSONObject) = Episode(j.optString("title"), j.optString("description"), j.optString("audio"), j.optString("date"), j.optString("image"), j.optString("podcast")) }
+data class Episode(val title: String, val description: String, val audio: String, val date: String, val image: String, val podcast: String, val chaptersUrl: String = "", val transcriptUrl: String = "") {
+    fun json() = JSONObject().put("title", title).put("description", description).put("audio", audio).put("date", date).put("image", image).put("podcast", podcast).put("chaptersUrl", chaptersUrl).put("transcriptUrl", transcriptUrl)
+    companion object { fun from(j: JSONObject) = Episode(j.optString("title"), j.optString("description"), j.optString("audio"), j.optString("date"), j.optString("image"), j.optString("podcast"), j.optString("chaptersUrl"), j.optString("transcriptUrl")) }
 }
 
 data class Bookmark(val id: String, val episode: Episode, val position: Long, val note: String) {
@@ -106,34 +112,59 @@ class Repository(private val context: Context) {
         val id = downloadId(e); if (id != -1L) (context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).remove(id)
         prefs.edit().remove("download:${e.audio}").putString("downloads", JSONArray(downloads().filterNot { it.audio == e.audio }.map { it.json() }).toString()).apply()
     }
-    private fun read(url: String): String {
+    private fun read(url: String, limit: Int = 8 * 1024 * 1024): String {
+        require(url.startsWith("https://")) { "HTTPS required" }
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = 15000; conn.readTimeout = 20000
         conn.setRequestProperty("User-Agent", "Podgir/1.0 (Android podcast player)")
-        try { if (conn.responseCode !in 200..299) error("HTTP ${conn.responseCode}"); return conn.inputStream.bufferedReader().use { it.readText() } } finally { conn.disconnect() }
+        try {
+            if (conn.responseCode !in 200..299) error("HTTP ${conn.responseCode}")
+            return conn.inputStream.use { input ->
+                val out = java.io.ByteArrayOutputStream(); val buffer = ByteArray(8192)
+                while (true) { val n = input.read(buffer); if (n < 0) break; require(out.size() + n <= limit) { "Response too large" }; out.write(buffer, 0, n) }
+                out.toString("UTF-8")
+            }
+        } finally { conn.disconnect() }
     }
+    suspend fun chapters(url: String): List<Chapter> = withContext(Dispatchers.IO) { parseChapters(read(url, 2 * 1024 * 1024)) }
+    suspend fun transcript(url: String): List<TranscriptCue> = withContext(Dispatchers.IO) { parseTimedTranscript(read(url, 2 * 1024 * 1024)) }
     suspend fun search(query: String): List<Podcast> = withContext(Dispatchers.IO) {
         val url = "https://itunes.apple.com/search?media=podcast&limit=40&term=" + java.net.URLEncoder.encode(query, "UTF-8")
         val a = JSONObject(read(url)).getJSONArray("results")
         (0 until a.length()).mapNotNull { i -> val j = a.getJSONObject(i); val feed = j.optString("feedUrl"); if (!feed.startsWith("https://")) null else Podcast(j.optString("collectionName"), j.optString("artistName"), j.optString("artworkUrl600", j.optString("artworkUrl100")), feed) }.distinctBy { it.feed }
     }
+    suspend fun searchFollowedEpisodes(query: String, podcasts: List<Podcast>): Pair<List<Episode>, Int> = coroutineScope {
+        val semaphore = Semaphore(4)
+        val results = podcasts.take(20).map { podcast -> async {
+            semaphore.withPermit {
+                try {
+                    val feed = episodes(podcast).take(200)
+                    val matchPodcast = podcast.title.contains(query, true) || podcast.author.contains(query, true)
+                    Pair(feed.filter { matchPodcast || it.title.contains(query, true) || it.description.contains(query, true) }, false)
+                } catch (e: CancellationException) { throw e } catch (_: Exception) { Pair(emptyList(), true) }
+            }
+        } }.awaitAll()
+        Pair(results.flatMap { it.first }.distinctBy { it.audio }.take(50), results.count { it.second })
+    }
     suspend fun episodes(p: Podcast): List<Episode> = withContext(Dispatchers.IO) {
         val parser = Xml.newPullParser(); parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true); parser.setInput(read(p.feed).reader())
-        val episodes = mutableListOf<Episode>(); var inItem = false; var title = ""; var desc = ""; var audio = ""; var date = ""; var image = p.image
+        val episodes = mutableListOf<Episode>(); var inItem = false; var title = ""; var desc = ""; var audio = ""; var date = ""; var image = p.image; var chapters = ""; var transcript = ""
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
             if (event == XmlPullParser.START_TAG) {
                 val name = parser.name.lowercase()
-                if (name == "item") { inItem = true; title = ""; desc = ""; audio = ""; date = ""; image = p.image }
+                if (name == "item") { inItem = true; title = ""; desc = ""; audio = ""; date = ""; image = p.image; chapters = ""; transcript = "" }
                 else if (inItem) when (name) {
                     "title" -> title = parser.nextText()
                     "description", "summary" -> if (desc.isEmpty()) desc = parser.nextText()
                     "pubdate" -> date = parser.nextText()
                     "enclosure" -> audio = parser.getAttributeValue(null, "url") ?: ""
                     "image" -> image = parser.getAttributeValue(null, "href") ?: image
+                    "chapters" -> { val url = parser.getAttributeValue(null, "url").orEmpty(); val type = parser.getAttributeValue(null, "type").orEmpty(); if (url.startsWith("https://") && (type.isEmpty() || type.contains("json", true))) chapters = url }
+                    "transcript" -> { val url = parser.getAttributeValue(null, "url").orEmpty(); val type = parser.getAttributeValue(null, "type").orEmpty().lowercase(); if (transcript.isEmpty() && url.startsWith("https://") && (type.contains("vtt") || type.contains("srt") || type.contains("subrip") || (type.isEmpty() && (url.contains(".vtt", true) || url.contains(".srt", true))))) transcript = url }
                 }
             } else if (event == XmlPullParser.END_TAG && parser.name.equals("item", true)) {
-                if (audio.startsWith("https://")) episodes.add(Episode(title, desc.replace(Regex("<[^>]*>"), " ").replace(Regex("\\s+"), " ").trim(), audio, date, image, p.title))
+                if (audio.startsWith("https://")) episodes.add(Episode(title, desc.replace(Regex("<[^>]*>"), " ").replace(Regex("\\s+"), " ").trim(), audio, date, image, p.title, chapters, transcript))
                 inItem = false
             }
             event = parser.next()
