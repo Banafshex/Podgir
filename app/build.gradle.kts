@@ -7,7 +7,23 @@ plugins {
 android {
     namespace = "com.podgir.app"
     compileSdk = 35
-    defaultConfig { applicationId = "com.podgir.app"; minSdk = 24; targetSdk = 35; versionCode = 1; versionName = "1.0" }
+    defaultConfig { applicationId = "com.podgir.app"; minSdk = 24; targetSdk = 35; versionCode = 1; versionName = "1.0.0" }
+    // Signing material is supplied only by the release environment, never stored in Git.
+    val keystorePath = providers.environmentVariable("PODGIR_KEYSTORE_PATH").orNull
+    val keystorePassword = providers.environmentVariable("PODGIR_KEYSTORE_PASSWORD").orNull
+    val keyAliasValue = providers.environmentVariable("PODGIR_KEY_ALIAS").orNull
+    val keyPasswordValue = providers.environmentVariable("PODGIR_KEY_PASSWORD").orNull
+    val releaseSigning = if (listOf(keystorePath, keystorePassword, keyAliasValue, keyPasswordValue).all { !it.isNullOrBlank() }) {
+        signingConfigs.create("podgirRelease") {
+            storeFile = file(keystorePath!!)
+            storePassword = keystorePassword
+            keyAlias = keyAliasValue
+            keyPassword = keyPasswordValue
+        }
+    } else null
+    buildTypes {
+        getByName("release") { if (releaseSigning != null) signingConfig = releaseSigning }
+    }
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }

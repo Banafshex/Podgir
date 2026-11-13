@@ -1,8 +1,14 @@
 name: Android build
 on:
   push:
-    branches: ['arena/4b75fe71-podgir']
+    branches: ['main', 'arena/1d50521a-podgir']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish signed version 1.0.0 to GitHub Releases'
+        type: boolean
+        required: true
+        default: false
 permissions:
   contents: read
 jobs:
@@ -15,7 +21,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build debug APK
+      - name: Test and build debug APK
         run: |
           set -o pipefail
           ./gradlew testDebugUnitTest assembleDebug --stacktrace 2>&1 | tee build-log.txt
@@ -31,8 +37,72 @@ jobs:
                   lines.append((failure.get('message') or '') + ' ' + (failure.text or '')[:1000])
           print('::error::' + '%0A'.join(lines[:35]).replace('%', '%25').replace('%250A', '%0A'))
           PYCODE
+      - name: Test release signing with a disposable key
+        run: |
+          set -eu
+          password="$(openssl rand -hex 20)"
+          echo "::add-mask::$password"
+          keytool -genkeypair -keystore "$RUNNER_TEMP/test-signing.p12" -storetype PKCS12 -storepass "$password" -keypass "$password" -alias ci-test -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=Disposable CI Test'
+          PODGIR_KEYSTORE_PATH="$RUNNER_TEMP/test-signing.p12" PODGIR_KEYSTORE_PASSWORD="$password" PODGIR_KEY_ALIAS=ci-test PODGIR_KEY_PASSWORD="$password" ./gradlew assembleRelease --stacktrace
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify app/build/outputs/apk/release/app-release.apk
+          rm -f "$RUNNER_TEMP/test-signing.p12"
       - uses: actions/upload-artifact@v4
         with:
           name: podgir-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/arena/1d50521a-podgir'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Validate signing configuration
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PODGIR_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          PODGIR_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          PODGIR_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -eu
+          test -n "$KEYSTORE_BASE64" && test -n "$PODGIR_KEYSTORE_PASSWORD" && test -n "$PODGIR_KEY_ALIAS" && test -n "$PODGIR_KEY_PASSWORD" || { echo '::error::Release signing secrets must be configured in GitHub Actions settings.'; exit 1; }
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/podgir-release.jks"
+          test -s "$RUNNER_TEMP/podgir-release.jks"
+      - name: Build signed release APK
+        env:
+          PODGIR_KEYSTORE_PATH: ${{ runner.temp }}/podgir-release.jks
+          PODGIR_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          PODGIR_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          PODGIR_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace
+      - name: Verify APK signature
+        run: |
+          set -eu
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee signing-verification.txt
+          cp "$APK" Podgir-1.0.0.apk
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          printf '%s\n' '## پادگیر ۱.۰.۰' '' 'پخش و دانلود پادکست برای اندروید ۷ و بالاتر، با رابط فارسی و انگلیسی.' '' 'این انتشار به حساب یا سرور اختصاصی نیاز ندارد. نتیجهٔ بیلد و تست‌های خودکار موفق بوده است؛ عملکرد روی همهٔ دستگاه‌ها تضمین نشده است.' '' 'قبل از حذف نسخهٔ آزمایشی قبلی، از کتابخانه پشتیبان بگیرید؛ نصب مستقیم روی بیلدهای دیباگ ممکن است به‌دلیل تفاوت امضا ممکن نباشد.' '' '### امضای فایل' '```' > release-notes.md
+          grep -E 'Signer #1 certificate SHA-256 digest:' signing-verification.txt >> release-notes.md
+          printf '%s\n' '```' >> release-notes.md
+          gh release create v1.0.0 Podgir-1.0.0.apk --target "$GITHUB_SHA" --title 'پادگیر | Podgir 1.0.0' --notes-file release-notes.md
+      - name: Remove signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/podgir-release.jks"
