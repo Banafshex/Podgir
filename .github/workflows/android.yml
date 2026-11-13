@@ -94,15 +94,31 @@ jobs:
           test -n "$APKSIGNER"
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee signing-verification.txt
           cp "$APK" Podgir-1.0.0.apk
+      - name: Keep verified APK as a temporary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: podgir-signed-release
+          path: Podgir-1.0.0.apk
+          retention-days: 7
+          if-no-files-found: error
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
           printf '%s\n' '## پادگیر ۱.۰.۰' '' 'پخش و دانلود پادکست برای اندروید ۷ و بالاتر، با رابط فارسی و انگلیسی.' '' 'این انتشار به حساب یا سرور اختصاصی نیاز ندارد. نتیجهٔ بیلد و تست‌های خودکار موفق بوده است؛ عملکرد روی همهٔ دستگاه‌ها تضمین نشده است.' '' 'قبل از حذف نسخهٔ آزمایشی قبلی، از کتابخانه پشتیبان بگیرید؛ نصب مستقیم روی بیلدهای دیباگ ممکن است به‌دلیل تفاوت امضا ممکن نباشد.' '' '### امضای فایل' '```' > release-notes.md
-          grep -E 'Signer #1 certificate SHA-256 digest:' signing-verification.txt >> release-notes.md
+          if grep -i 'certificate SHA-256 digest:' signing-verification.txt >> release-notes.md; then
+            echo 'Certificate fingerprint included in release notes.'
+          else
+            echo '::error::Could not find certificate SHA-256 fingerprint in apksigner output.'
+            exit 1
+          fi
           printf '%s\n' '```' >> release-notes.md
-          gh release create v1.0.0 Podgir-1.0.0.apk --target "$GITHUB_SHA" --title 'پادگیر | Podgir 1.0.0' --notes-file release-notes.md
+          if ! gh release create v1.0.0 Podgir-1.0.0.apk --target "$GITHUB_SHA" --title 'پادگیر | Podgir 1.0.0' --notes-file release-notes.md > release-result.txt 2>&1; then
+            echo "::error::$(tr '\n' ' ' < release-result.txt)"
+            exit 1
+          fi
+          cat release-result.txt
       - name: Remove signing material
         if: always()
         run: rm -f "$RUNNER_TEMP/podgir-release.jks"
