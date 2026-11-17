@@ -52,6 +52,10 @@ class Repository(private val context: Context) {
     fun position(url: String) = prefs.getLong("pos:$url", 0)
     fun savePosition(url: String, pos: Long) { prefs.edit().putLong("pos:$url", pos).apply() }
     private fun array(key: String): JSONArray = try { JSONArray(prefs.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
+    fun searchHistory(): List<String> { val a = array("searchHistory"); return (0 until a.length()).mapNotNull { a.optString(it).takeIf { v -> v.isNotBlank() } } }
+    fun saveSearchHistory(list: List<String>) { prefs.edit().putString("searchHistory", JSONArray(list).toString()).apply() }
+    fun playlists(): List<Playlist> { val a = array("playlists"); return (0 until a.length()).mapNotNull { runCatching { Playlist.from(a.getJSONObject(it)) }.getOrNull() } }
+    fun savePlaylists(list: List<Playlist>) { prefs.edit().putString("playlists", JSONArray(list.map { it.json() }).toString()).apply() }
     fun subscriptions(): List<Podcast> { val a = array("subscriptions"); return (0 until a.length()).mapNotNull { runCatching { Podcast.from(a.getJSONObject(it)) }.getOrNull() } }
     fun toggle(p: Podcast) {
         val list = subscriptions().toMutableList()
@@ -69,9 +73,9 @@ class Repository(private val context: Context) {
     fun setSeenEpisode(p: Podcast, url: String) { prefs.edit().putString("seen:${p.feed}", url).apply() }
     fun libraryBackup(): LibraryBackup {
         val history = history(); val favorites = favorites(); val bookmarks = bookmarks()
-        val episodes = (history + favorites + bookmarks.map { it.episode } + queue()).distinctBy { it.audio }
+        val episodes = (history + favorites + bookmarks.map { it.episode } + queue() + playlists().flatMap { it.episodes }).distinctBy { it.audio }
         val progress = episodes.map { SavedProgress(it.audio, position(it.audio), duration(it.audio)) }
-        return LibraryBackup(subscriptions(), history, favorites, bookmarks, progress, queue())
+        return LibraryBackup(subscriptions(), history, favorites, bookmarks, progress, queue(), playlists())
     }
     fun restoreLibraryBackup(data: LibraryBackup) {
         // All parsing/validation happens before this single preferences transaction.
@@ -83,6 +87,7 @@ class Repository(private val context: Context) {
         editor.putString("history", JSONArray(data.history.map { it.json() }).toString())
         editor.putString("favorites", JSONArray(data.favorites.map { it.json() }).toString())
         editor.putString("bookmarks", JSONArray(data.bookmarks.map { it.json() }).toString())
+        data.playlists?.let { editor.putString("playlists", JSONArray(it.map { pl -> pl.json() }).toString()) }
         data.progress.forEach { editor.putLong("pos:${it.audio}", it.position).putLong("duration:${it.audio}", it.duration) }
         editor.apply()
     }
@@ -168,6 +173,16 @@ class Repository(private val context: Context) {
     }
     suspend fun chapters(url: String): List<Chapter> = withContext(Dispatchers.IO) { parseChapters(read(url, 2 * 1024 * 1024)) }
     suspend fun transcript(url: String): List<TranscriptCue> = withContext(Dispatchers.IO) { parseTimedTranscript(read(url, 2 * 1024 * 1024)) }
+    /** Apple US chart order, not listener or follower counts. Lookup supplies RSS feeds. */
+    suspend fun chart(genre: Int? = null): List<Podcast> = withContext(Dispatchers.IO) {
+        val suffix = if (genre == null) "" else "/genre=$genre"
+        val entries = JSONObject(read("https://itunes.apple.com/us/rss/toppodcasts/limit=100$suffix/json")).getJSONObject("feed").optJSONArray("entry") ?: JSONArray()
+        val ids = (0 until entries.length()).mapNotNull { i -> entries.optJSONObject(i)?.optJSONObject("id")?.optJSONObject("attributes")?.optString("im:id")?.takeIf { it.all(Char::isDigit) && it.isNotEmpty() } }
+        if (ids.isEmpty()) return@withContext emptyList()
+        val a = JSONObject(read("https://itunes.apple.com/lookup?entity=podcast&id=" + ids.joinToString(","))).getJSONArray("results")
+        val byId = (0 until a.length()).mapNotNull { i -> val j = a.getJSONObject(i); val feed = j.optString("feedUrl"); if (!feed.startsWith("https://")) null else j.optString("collectionId") to Podcast(j.optString("collectionName"), j.optString("artistName"), j.optString("artworkUrl600", j.optString("artworkUrl100")), feed) }.toMap()
+        ids.mapNotNull { byId[it] }.distinctBy { it.feed }
+    }
     suspend fun search(query: String): List<Podcast> = withContext(Dispatchers.IO) {
         val url = "https://itunes.apple.com/search?media=podcast&limit=40&term=" + java.net.URLEncoder.encode(query, "UTF-8")
         val a = JSONObject(read(url)).getJSONArray("results")

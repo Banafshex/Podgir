@@ -33,6 +33,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -96,6 +97,21 @@ fun PodgirApp(player: MediaController?) {
             var oldestFirst by remember { mutableStateOf(false) }
             var nextAvailable by remember { mutableStateOf(false) }
             var results by remember { mutableStateOf<List<Podcast>>(emptyList()) }
+            var recommendations by remember { mutableStateOf<List<Podcast>>(emptyList()) }
+            var chartLoading by remember { mutableStateOf(false) }
+            var chartError by remember { mutableStateOf(false) }
+            var category by remember { mutableStateOf<PodcastCategory?>(null) }
+            var categoryQuery by remember { mutableStateOf("") }
+            var recentSearches by remember { mutableStateOf(repo.searchHistory()) }
+            var searchFocused by remember { mutableStateOf(false) }
+            var playlists by remember { mutableStateOf(repo.playlists()) }
+            var playlistId by remember { mutableStateOf<String?>(null) }
+            var showNewPlaylist by remember { mutableStateOf(false) }
+            var newPlaylistName by remember { mutableStateOf("") }
+            var addEpisode by remember { mutableStateOf<Episode?>(null) }
+            var clearSearchConfirm by remember { mutableStateOf(false) }
+            var showPlaylists by remember { mutableStateOf(false) }
+            var skipSilence by remember { mutableStateOf(repo.boolean("skipSilence", false)) }
             var episodeResults by remember { mutableStateOf<List<Episode>>(emptyList()) }
             var episodeSearchLoading by remember { mutableStateOf(false) }
             var episodeSearchDone by remember { mutableStateOf(false) }
@@ -191,7 +207,7 @@ fun PodgirApp(player: MediaController?) {
                 }
             }
             BackHandler {
-                if (expanded || infoPodcast != null || savedPage != 0 || historyPage || downloadsPage || downloadSettingsPage || selected != null) lastBackPress = 0L
+                if (expanded || infoPodcast != null || savedPage != 0 || historyPage || downloadsPage || downloadSettingsPage || selected != null || category != null || playlistId != null || showPlaylists) lastBackPress = 0L
                 when {
                     expanded -> expanded = false
                     infoPodcast != null -> infoPodcast = null
@@ -200,6 +216,9 @@ fun PodgirApp(player: MediaController?) {
                     downloadsPage -> downloadsPage = false
                     downloadSettingsPage -> downloadSettingsPage = false
                     selected != null -> { request?.cancel(); selected = null; error = ""; loading = false }
+                    playlistId != null -> playlistId = null
+                    showPlaylists -> showPlaylists = false
+                    category != null -> { category = null; categoryQuery = "" }
                     else -> {
                         val now = android.os.SystemClock.elapsedRealtime()
                         if (lastBackPress != 0L && now - lastBackPress <= 2000L) (context as? ComponentActivity)?.finish()
@@ -207,6 +226,7 @@ fun PodgirApp(player: MediaController?) {
                     }
                 }
             }
+            fun rememberSearch(q: String) { recentSearches = updatedSearchHistory(recentSearches, q); repo.saveSearchHistory(recentSearches) }
             fun search(q: String, includeEpisodes: Boolean = true) {
                 request?.cancel(); episodeResults = emptyList(); episodeSearchDone = false; episodeSearchLoading = false
                 request = scope.launch {
@@ -236,12 +256,12 @@ fun PodgirApp(player: MediaController?) {
             pendingBackup?.let { backup ->
                 AlertDialog(onDismissRequest = { pendingBackup = null },
                     title = { Text(t("بازیابی کتابخانه؟", "Restore library?")) },
-                    text = { Text(if (backup.queue != null) t("اشتراک‌ها، تاریخچه، علاقه‌مندی‌ها، یادداشت‌ها، پیشرفت و صف جایگزین می‌شوند. دانلودها باقی می‌مانند؛ دانلود خودکار خاموش و پخش متوقف می‌شود.", "Follows, history, favorites, notes, progress and queue will be replaced. Downloads remain; auto-download is disabled and playback pauses.") else t("اشتراک‌ها، تاریخچه، علاقه‌مندی‌ها، یادداشت‌ها و پیشرفت جایگزین می‌شوند. دانلودها و صف باقی می‌مانند؛ دانلود خودکار خاموش و پخش متوقف می‌شود.", "Follows, history, favorites, notes and progress will be replaced. Downloads and queue remain; auto-download is disabled and playback pauses.")) },
+                    text = { Text(if (backup.queue != null) t("اشتراک‌ها، تاریخچه، علاقه‌مندی‌ها، یادداشت‌ها، پیشرفت و صف جایگزین می‌شوند؛ پلی‌لیست‌ها فقط در صورت وجود در پشتیبان جایگزین می‌شوند. دانلودها باقی می‌مانند؛ دانلود خودکار خاموش و پخش متوقف می‌شود.", "Follows, history, favorites, notes, progress and queue will be replaced; playlists are replaced only when included in the backup. Downloads remain; auto-download is disabled and playback pauses.") else t("اشتراک‌ها، تاریخچه، علاقه‌مندی‌ها، یادداشت‌ها و پیشرفت جایگزین می‌شوند. دانلودها و صف باقی می‌مانند؛ دانلود خودکار خاموش و پخش متوقف می‌شود.", "Follows, history, favorites, notes and progress will be replaced. Downloads and queue remain; auto-download is disabled and playback pauses.")) },
                     confirmButton = { TextButton(onClick = {
                         player?.pause(); repo.restoreLibraryBackup(backup); backup.queue?.let { setQueue(it.filterNot { e -> e.audio == current?.audio }) }
                         val restoredPosition = backup.progress.firstOrNull { it.audio == current?.audio }?.position
                         if (restoredPosition != null) { player?.seekTo(restoredPosition); position = restoredPosition }
-                        subscriptions = repo.subscriptions(); history = repo.history(); favorites = repo.favorites(); bookmarks = repo.bookmarks()
+                        subscriptions = repo.subscriptions(); history = repo.history(); favorites = repo.favorites(); bookmarks = repo.bookmarks(); playlists = repo.playlists()
                         selected?.let { autoFeed = repo.autoDownload(it) }
                         pendingBackup = null; toast(t("کتابخانه بازیابی شد.", "Library restored."))
                     }) { Text(t("بازیابی", "Restore")) } }, dismissButton = { TextButton(onClick = { pendingBackup = null }) { Text(t("انصراف", "Cancel")) } })
@@ -270,7 +290,18 @@ fun PodgirApp(player: MediaController?) {
                     player.prepare()
                 }
             }
-            LaunchedEffect(Unit) { search("پادکست فارسی", false); delay(1500); checkUpdate(false) }
+            LaunchedEffect(Unit) { delay(1500); checkUpdate(false) }
+            LaunchedEffect(category) {
+                chartLoading = true; chartError = false; recommendations = emptyList()
+                try { recommendations = repo.chart(category?.id) }
+                catch (ex: kotlinx.coroutines.CancellationException) { throw ex }
+                catch (_: Exception) { chartError = true }
+                finally { chartLoading = false }
+            }
+            LaunchedEffect(query, category, tab) {
+                if (tab == 1 && category == null && query.trim().length >= 3 && !query.startsWith("https://", true)) { delay(450); search(query.trim(), false) }
+                else if (category == null && query.trim().length < 3) { request?.cancel(); results = emptyList(); loading = false; error = "" }
+            }
             LaunchedEffect(player) {
                 while (true) {
                     if (player != null) {
@@ -291,9 +322,9 @@ fun PodgirApp(player: MediaController?) {
                         current?.let { e -> MiniPlayer(e, playing, position, duration, onOpen = { expanded = true }, onToggle = { if (playing) player?.pause() else player?.play() }) }
                     }
                     NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                        val labels = listOf(t("خانه", "Home"), t("جست‌وجو", "Search"), t("کتابخانه", "Library"), t("تنظیمات", "Settings"))
-                        val icons = listOf(Icons.Default.Home, Icons.Default.Search, Icons.Default.LibraryMusic, Icons.Default.Settings)
-                        labels.forEachIndexed { i, label -> NavigationBarItem(selected = tab == i && selected == null, onClick = { tab = i; selected = null; downloadsPage = false; downloadSettingsPage = false; historyPage = false; savedPage = 0; lastBackPress = 0L; error = "" }, icon = { Icon(icons[i], label) }, label = { Text(label, fontSize = 10.sp) }) }
+                        val labels = listOf(t("خانه", "Home"), t("دسته‌بندی", "Categories"), t("کتابخانه", "Library"), t("تنظیمات", "Settings"))
+                        val icons = listOf(Icons.Default.Home, Icons.Default.GridView, Icons.Default.LibraryMusic, Icons.Default.Settings)
+                        labels.forEachIndexed { i, label -> NavigationBarItem(selected = tab == i && selected == null, onClick = { tab = i; selected = null; category = null; categoryQuery = ""; playlistId = null; showPlaylists = false; downloadsPage = false; downloadSettingsPage = false; historyPage = false; savedPage = 0; lastBackPress = 0L; error = "" }, icon = { Icon(icons[i], label) }, label = { Text(label, fontSize = 10.sp) }) }
                     }
                 }
             }) { padding ->
@@ -306,6 +337,16 @@ fun PodgirApp(player: MediaController?) {
                         else item { Message(t("در این نسخهٔ اندروید فایل‌ها در حافظهٔ اختصاصی برنامه ذخیره می‌شوند.", "On this Android version, files are saved in app-specific storage.")) }
                         item { SavedEntry(t("کیفیت فایل", "Audio quality"), t("کیفیت اصلی ناشر", "Original publisher quality"), Icons.Default.HighQuality) { toast(t("هر قسمت با فایل اصلی ارائه‌شده در فید دریافت می‌شود؛ این نسخه انتخاب کیفیت جایگزین را پشتیبانی نمی‌کند.", "Episodes use the original file provided by the feed; this version does not support choosing an alternative quality.")) } }
                         item { Message(t("تنظیمات شبکه و محل ذخیره فقط برای دانلودهای جدید اعمال می‌شوند. کیفیت را ناشر تعیین می‌کند و برنامه فایل را تبدیل نمی‌کند.", "Network and location settings apply to new downloads only. Quality is determined by the publisher; files are not transcoded.")) }
+                    } else if (showPlaylists) {
+                        val list = playlists.firstOrNull { it.id == playlistId }
+                        item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { if (playlistId != null) playlistId = null else showPlaylists = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("بازگشت", "Back")) }; Text(list?.name ?: t("پلی‌لیست‌ها", "Playlists"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (list == null) IconButton(onClick = { newPlaylistName = ""; showNewPlaylist = true }) { Icon(Icons.Default.Add, t("پلی‌لیست جدید", "New playlist")) } } }
+                        if (list == null) {
+                            if (playlists.isEmpty()) item { Message(t("با دکمهٔ + یک پلی‌لیست بسازید.", "Create a playlist with the + button.")) }
+                            items(playlists, key = { it.id }) { pl -> Row(verticalAlignment = Alignment.CenterVertically) { Text(pl.name + " · " + pl.episodes.size, Modifier.weight(1f).clickable { playlistId = pl.id }.padding(16.dp)); IconButton(onClick = { playlists = playlists.filterNot { it.id == pl.id }; repo.savePlaylists(playlists) }) { Icon(Icons.Default.DeleteOutline, t("حذف پلی‌لیست", "Delete playlist")) } } }
+                        } else {
+                            if (list.episodes.isEmpty()) item { Message(t("از کارت هر قسمت آن را به پلی‌لیست اضافه کنید.", "Add episodes from their cards.")) }
+                            items(list.episodes, key = { it.audio }) { e -> Row(verticalAlignment = Alignment.CenterVertically) { Text(e.title, Modifier.weight(1f).clickable { play(e, list.episodes) }.padding(16.dp)); IconButton(onClick = { playlists = playlists.map { if (it.id == list.id) it.copy(episodes = it.episodes.filterNot { ep -> ep.audio == e.audio }) else it }; repo.savePlaylists(playlists) }) { Icon(Icons.Default.Close, t("حذف از پلی‌لیست", "Remove from playlist")) } } }
+                        }
                     } else if (savedPage == 1) {
                         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { savedPage = 0 }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("بازگشت", "Back")) }; Text(t("علاقه‌مندی‌ها", "Favorites"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) } }
                         if (favorites.isEmpty()) item { Message(t("هنوز قسمتی را دوست نداشته‌اید.", "No favorite episodes yet.")) }
@@ -337,45 +378,58 @@ fun PodgirApp(player: MediaController?) {
                         if (loading) item { Loading() }
                         if (error.isNotEmpty()) item { Message(error) }
                         if (!loading && error.isEmpty() && episodes.isEmpty()) item { Message(t("قسمتی پیدا نشد.", "No episodes found.")) }
-                        items(orderedEpisodes, key = { it.audio }) { e -> EpisodeCard(e, fa, repo, livePosition = if (current?.audio == e.audio) position else null, liveDuration = if (current?.audio == e.audio) duration else null, onPlay = { play(e, orderedEpisodes) }, onQueue = { if (current?.audio != e.audio && queue.none { it.audio == e.audio }) setQueue(queue + e) }, queued = queue.any { it.audio == e.audio }, onDownload = { runCatching { repo.download(e) }.onFailure { error = t("دانلود شروع نشد.", "Could not start download.") }; downloads = repo.downloads() }) }
+                        items(orderedEpisodes, key = { it.audio }) { e -> EpisodeCard(e, fa, repo, livePosition = if (current?.audio == e.audio) position else null, liveDuration = if (current?.audio == e.audio) duration else null, onPlay = { play(e, orderedEpisodes) }, onQueue = { if (current?.audio != e.audio && queue.none { it.audio == e.audio }) setQueue(queue + e) }, queued = queue.any { it.audio == e.audio }, onPlaylist = { addEpisode = e }, onDownload = { runCatching { repo.download(e) }.onFailure { error = t("دانلود شروع نشد.", "Could not start download.") }; downloads = repo.downloads() }) }
                     } else when (tab) {
                         0 -> {
                             item { Header(fa) }
                             item { Hero(fa, onClick = { tab = 1 }) }
-                            if (history.isNotEmpty()) {
+                            val continuing = continueListening(history, { if (it.audio == current?.audio) position else repo.position(it.audio) }, { if (it.audio == current?.audio && duration > 0) duration else repo.duration(it.audio) })
+                            if (continuing.isNotEmpty()) {
                                 item { SectionTitle(t("ادامه شنیدن", "Continue listening"), "") }
-                                items(history.take(3), key = { "history:" + it.audio }) { e -> HistoryEpisode(e, repo, fa) { play(e) } }
+                                items(continuing, key = { "history:" + it.audio }) { e -> HistoryEpisode(e, repo, fa) { play(e) } }
                             }
-                            item { SectionTitle(t("برای شروع گوش دادن", "Find your next listen"), t("فارسی", "Persian")) }
-                            item { Text(t("چند پیشنهاد برای کشف دنیای پادکست‌های فارسی", "Explore a selection of Persian podcasts"), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium) }
-                            if (loading) item { Loading() }
-                            if (error.isNotEmpty()) item { Message(error); TextButton(onClick = { search("پادکست فارسی", false) }) { Text(t("تلاش دوباره", "Try again")) } }
-                            if (results.isNotEmpty()) item { LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) { items(results.take(12), key = { it.feed }) { p -> FeaturedPodcast(p) { open(p) } } } }
-                            item { SectionTitle(t("بیشتر کشف کنید", "More to discover"), "") }
-                            items(results.drop(12).take(12), key = { it.feed }) { p -> PodcastRow(p) { open(p) } }
+                            item { SectionTitle(t("پیشنهادها", "Discover"), t("جدول اپل آمریکا", "Apple US charts")) }
+                            item { Text(t("بر اساس رتبهٔ جدول اپل؛ تعداد شنونده یا دنبال‌کننده در دسترس نیست.", "Apple chart order; listener and follower counts are unavailable."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            if (chartLoading) item { Loading() }
+                            if (chartError) item { Message(t("دریافت پیشنهادها ممکن نشد.", "Could not load recommendations.")) }
+                            if (recommendations.isNotEmpty()) item { LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) { items(recommendations.take(12), key = { it.feed }) { p -> FeaturedPodcast(p) { open(p) } } } }
                         }
                         1 -> {
-                            item { Text(t("کشف پادکست", "Discover"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold); Text(t("یک دنیای تازه برای شنیدن", "A world of stories awaits"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            item { Row(verticalAlignment = Alignment.CenterVertically) { OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.weight(1f), singleLine = true, placeholder = { Text(t("نام پادکست یا آدرس RSS...", "Podcast or RSS URL...")) }, shape = RoundedCornerShape(18.dp), leadingIcon = { Icon(Icons.Default.Search, null) }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search), keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { if (query.startsWith("https://")) open(Podcast(query, "RSS", "", query)) else if (query.isNotBlank()) search(query) })); Spacer(Modifier.width(8.dp)); FilledIconButton(onClick = { if (query.startsWith("https://")) open(Podcast(query, "RSS", "", query)) else if (query.isNotBlank()) search(query) }, modifier = Modifier.size(52.dp)) { Icon(Icons.Default.ArrowForward, t("جست‌وجو", "Search")) } } }
-                            item { LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { items(listOf("پادکست فارسی", "داستان", "تاریخ", "علم", "technology")) { term -> SuggestionChip(onClick = { query = term; search(term) }, label = { Text(term) }) } } }
-                            if (loading) item { Loading() }
-                            if (error.isNotEmpty()) item { Message(error) }
-                            if (!loading && error.isEmpty() && results.isEmpty()) item { Message(t("نتیجه‌ای پیدا نشد.", "No podcasts found.")) }
-                            if (results.isNotEmpty()) item { SectionTitle(t("پادکست‌ها", "Podcasts"), "${results.size}") }
-                            items(results, key = { it.feed }) { p -> PodcastRow(p) { open(p) } }
-                            if (episodeSearchLoading || episodeSearchDone) item { SectionTitle(t("قسمت‌های دنبال‌شده", "Episodes from followed podcasts"), "${episodeResults.size}") }
-                            if (episodeSearchLoading) item { Loading() }
-                            if (episodeSearchDone) item { Text(t("جست‌وجو در حداکثر ۲۰ فید و ۲۰۰ قسمت اخیر هر فید انجام می‌شود.", "Search covers up to 20 followed feeds and their latest 200 episodes."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            if (episodeSearchDone && episodeSearchErrors > 0) item { Message(t("$episodeSearchErrors فید در دسترس نبود؛ نتایج ممکن است ناقص باشند.", "$episodeSearchErrors feeds could not be loaded; results may be incomplete.")) }
-                            if (episodeSearchDone && episodeResults.isEmpty()) item { Message(t("قسمت مرتبطی در فیدهای قابل دریافت پیدا نشد.", "No matching episodes were found in available feeds.")) }
-                            items(episodeResults, key = { "search:" + it.audio }) { e -> EpisodeCard(e, fa, repo, onPlay = { play(e) }, onQueue = { if (current?.audio != e.audio && queue.none { it.audio == e.audio }) setQueue(queue + e) }, queued = queue.any { it.audio == e.audio }, onDownload = { runCatching { repo.download(e) }.onFailure { error = t("دانلود شروع نشد.", "Could not start download.") }; downloads = repo.downloads() }) }
-                            item { Text(t("نتایج پادکست‌ها از Apple Podcasts ارائه می‌شوند.", "Podcast results provided by Apple Podcasts."), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            item { Text(category?.let { if (fa) it.fa else it.en } ?: t("دسته‌بندی و کشف", "Categories & discovery"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold) }
+                            if (category != null) item { TextButton(onClick = { category = null; categoryQuery = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null); Text(t("همهٔ دسته‌ها", "All categories")) } }
+                            item { OutlinedTextField(value = if (category == null) query else categoryQuery, onValueChange = { if (category == null) query = it else categoryQuery = it }, modifier = Modifier.fillMaxWidth().onFocusChanged { searchFocused = it.isFocused }, singleLine = true, placeholder = { Text(if (category == null) t("جست‌وجوی پادکست یا آدرس RSS", "Search podcasts or RSS URL") else t("جست‌وجو در همین فهرست", "Search this list")) }, shape = RoundedCornerShape(18.dp), leadingIcon = { Icon(Icons.Default.Search, null) }, trailingIcon = { if ((if (category == null) query else categoryQuery).isNotEmpty()) IconButton(onClick = { if (category == null) query = "" else categoryQuery = "" }) { Icon(Icons.Default.Close, t("پاک‌کردن", "Clear")) } }, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search), keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { if (category == null) { if (query.startsWith("https://")) open(Podcast(query, "RSS", "", query)) else if (query.isNotBlank()) { rememberSearch(query); search(query) } } })) }
+                            if (category == null && searchFocused && recentSearches.isNotEmpty()) {
+                                item { SectionTitle(t("جست‌وجوهای اخیر", "Recent searches"), "") }
+                                items(recentSearches, key = { "recent:" + it }) { term -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(term, Modifier.weight(1f).clickable { query = term; rememberSearch(term); search(term) }.padding(12.dp)); IconButton(onClick = { recentSearches = recentSearches.filterNot { it == term }; repo.saveSearchHistory(recentSearches) }) { Icon(Icons.Default.Close, t("حذف", "Remove")) } } }
+                                item { HorizontalDivider() }
+                            }
+                            if (category == null && query.trim().length < 3 && !query.startsWith("https://")) {
+                                item { SectionTitle(t("دسته‌ها", "Categories"), "") }
+                                items(podcastCategories.chunked(3)) { row -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { row.forEach { cat -> Surface(onClick = { category = cat; categoryQuery = "" }, modifier = Modifier.weight(1f).aspectRatio(1f), shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.primaryContainer) { Box(contentAlignment = Alignment.Center) { Text(if (fa) cat.fa else cat.en, modifier = Modifier.padding(6.dp), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer) } } }; repeat(3 - row.size) { Spacer(Modifier.weight(1f)) } } }
+                            }
+                            if (category == null && query.startsWith("https://")) item { Button(onClick = { open(Podcast(query.trim(), "RSS", "", query.trim())) }) { Text(t("باز کردن RSS", "Open RSS")) } }
+                            if (category == null && query.trim().length >= 3 && !query.startsWith("https://")) {
+                                if (loading) item { Loading() }
+                                if (error.isNotEmpty()) item { Message(error) }
+                                if (!loading && error.isEmpty() && results.isEmpty()) item { Message(t("نتیجه‌ای پیدا نشد.", "No podcasts found.")) }
+                                items(results, key = { "result:" + it.feed }) { p -> PodcastRow(p) { rememberSearch(query); open(p) } }
+                            }
+                            if (category != null || query.trim().length < 3) {
+                                item { SectionTitle(if (category == null) t("پیشنهادها", "Suggestions") else t("جدول این دسته", "Category chart"), "") }
+                                item { Text(t("ترتیب جدول Apple Podcasts در آمریکا است، نه تعداد شنونده یا دنبال‌کننده.", "Apple Podcasts US chart order, not listener or follower counts."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                if (chartLoading) item { Loading() }
+                                if (chartError) item { Message(t("دریافت جدول ممکن نشد. اتصال اینترنت را بررسی کنید.", "Could not load chart. Check your connection.")) }
+                                val shown = if (category == null || categoryQuery.isBlank()) recommendations else recommendations.filter { searchMatches(it.title, categoryQuery) || searchMatches(it.author, categoryQuery) }
+                                if (!chartLoading && !chartError && shown.isEmpty()) item { Message(t("نتیجه‌ای پیدا نشد.", "No results found.")) }
+                                items(shown, key = { "chart:" + it.feed }) { p -> PodcastRow(p) { open(p) } }
+                            }
                         }
                         2 -> {
                             item { Text(t("کتابخانهٔ من", "Your library"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold); Text(t("همهٔ صداهای محبوبت، یک‌جا", "All your favorite voices in one place"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             item { SectionTitle(t("دنبال‌شده‌ها", "Following"), "${subscriptions.size}") }
                             if (subscriptions.isEmpty()) item { Message(t("هنوز پادکستی را دنبال نکرده‌اید. از بخش جست‌وجو شروع کنید.", "You haven't followed any podcasts yet. Start exploring.")) }
                             items(subscriptions, key = { it.feed }) { p -> PodcastRow(p) { open(p) } }
+                            item { SavedEntry(t("پلی‌لیست‌ها", "Playlists"), "${playlists.size}", Icons.Default.QueueMusic) { showPlaylists = true; playlistId = null } }
                             item { DownloadEntry(fa, downloads.size) { downloadsPage = true } }
                             item { HistoryEntry(fa) { historyPage = true } }
                             item { SavedEntry(t("علاقه‌مندی‌ها", "Favorites"), "${favorites.size}", Icons.Default.Favorite) { savedPage = 1 } }
@@ -390,6 +444,8 @@ fun PodgirApp(player: MediaController?) {
                             item { Text(t("تنظیمات", "Settings"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold); Text(t("پادگیر را برای خودت بساز", "Make Podgir yours"), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             item { val modes = listOf(t("همراه با سیستم", "System default"), t("روشن", "Light"), t("تاریک", "Dark")); OptionSetting(t("ظاهر برنامه", "Appearance"), modes[themeMode.coerceIn(0, 2)], modes) { themeMode = it; repo.setLong("themeMode", it.toLong()) } }
                             item { LanguageSetting(fa) { fa = it; repo.setBoolean("fa", it) } }
+                            item { SettingRow(t("حذف سکوت", "Skip silence"), t("مکث‌های طولانی هنگام پخش کوتاه می‌شوند", "Shorten long silences during playback"), skipSilence) { skipSilence = it; repo.setBoolean("skipSilence", it); context.startService(android.content.Intent(context, PlaybackService::class.java).setAction("com.podgir.app.SKIP_SILENCE")) } }
+                            item { SavedEntry(t("پاک کردن تاریخچهٔ جست‌وجو", "Clear search history"), t("حذف همهٔ جست‌وجوهای اخیر", "Remove all recent searches"), Icons.Default.Search) { clearSearchConfirm = true } }
                             item { SettingRow(t("پخش خودکار قسمت بعدی", "Autoplay next episode"), t("قسمت بعدی در صف", "Next episode in the queue"), autoplay) { autoplay = it; repo.setBoolean("autoplay", it); context.startService(android.content.Intent(context, PlaybackService::class.java).setAction("com.podgir.app.AUTOPLAY")) } }
                             item { SettingRow(t("اعلان قسمت جدید", "New episode notifications"), t("برای پادکست‌های دنبال‌شده", "For followed podcasts"), notifyNew) { notifyNew = it; repo.setBoolean("newEpisodeNotifications", it) } }
                             item { SettingRow(t("یادآور شنیدن", "Listening reminder"), t("تقریباً روزانه؛ زمان دقیق وابسته به اندروید", "Approximately daily; timing depends on Android"), reminder) { reminder = it; repo.setBoolean("listeningReminder", it); ReminderWorker.configure(context, it) } }
@@ -404,6 +460,9 @@ fun PodgirApp(player: MediaController?) {
                     }
                 }
             }
+            if (clearSearchConfirm) AlertDialog(onDismissRequest = { clearSearchConfirm = false }, title = { Text(t("پاک کردن جست‌وجوها؟", "Clear search history?")) }, confirmButton = { TextButton(onClick = { recentSearches = emptyList(); repo.saveSearchHistory(emptyList()); clearSearchConfirm = false }) { Text(t("پاک کردن", "Clear")) } }, dismissButton = { TextButton(onClick = { clearSearchConfirm = false }) { Text(t("انصراف", "Cancel")) } })
+            if (showNewPlaylist) AlertDialog(onDismissRequest = { showNewPlaylist = false }, title = { Text(t("پلی‌لیست جدید", "New playlist")) }, text = { OutlinedTextField(value = newPlaylistName, onValueChange = { newPlaylistName = it.take(100) }, singleLine = true, label = { Text(t("نام", "Name")) }) }, confirmButton = { TextButton(enabled = newPlaylistName.isNotBlank(), onClick = { playlists = playlists + Playlist(java.util.UUID.randomUUID().toString(), newPlaylistName.trim()); repo.savePlaylists(playlists); showNewPlaylist = false }) { Text(t("ساخت", "Create")) } }, dismissButton = { TextButton(onClick = { showNewPlaylist = false }) { Text(t("انصراف", "Cancel")) } })
+            addEpisode?.let { e -> AlertDialog(onDismissRequest = { addEpisode = null }, title = { Text(t("افزودن به پلی‌لیست", "Add to playlist")) }, text = { Column { if (playlists.isEmpty()) Text(t("ابتدا در کتابخانه یک پلی‌لیست بسازید.", "First create a playlist in your library.")); playlists.forEach { pl -> TextButton(onClick = { playlists = playlists.map { if (it.id == pl.id) it.copy(episodes = (it.episodes + e).distinctBy { ep -> ep.audio }) else it }; repo.savePlaylists(playlists); addEpisode = null; toast(t("اضافه شد", "Added")) }) { Text(pl.name) } } } }, confirmButton = { TextButton(onClick = { addEpisode = null }) { Text(t("بستن", "Close")) } }) }
             if (showUpdate) UpdateDialog(updateInfo, updateMessage, fa, updater) { val wasAvailable = updateInfo != null; showUpdate = false; if (wasAvailable) toast(t("بعداً از تنظیمات ← به‌روزرسانی برنامه می‌توانید نصب کنید.", "You can update later from Settings → App updates.")) }
             infoPodcast?.let { p -> PodcastInfoDialog(p, fa, repo) { infoPodcast = null } }
             if (expanded && current != null) PlayerScreen(
@@ -469,7 +528,7 @@ private fun formatTime(ms: Long): String { val s = TimeUnit.MILLISECONDS.toSecon
 }
 @Composable private fun SectionTitle(title: String, extra: String) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold); Text(extra, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) } }
 @Composable private fun PodcastRow(p: Podcast, onClick: () -> Unit) { Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface) { Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Cover(p.image, 68); Spacer(Modifier.width(14.dp)); Column(Modifier.weight(1f)) { Text(p.title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis); Spacer(Modifier.height(4.dp)); Text(p.author, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }; Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.primary) } } }
-@Composable private fun EpisodeCard(e: Episode, fa: Boolean, repo: Repository, livePosition: Long? = null, liveDuration: Long? = null, onPlay: () -> Unit, onQueue: () -> Unit, queued: Boolean, onDownload: () -> Unit) {
+@Composable private fun EpisodeCard(e: Episode, fa: Boolean, repo: Repository, livePosition: Long? = null, liveDuration: Long? = null, onPlay: () -> Unit, onQueue: () -> Unit, queued: Boolean, onPlaylist: () -> Unit, onDownload: () -> Unit) {
     val position = livePosition ?: repo.position(e.audio)
     val duration = (liveDuration ?: 0).takeIf { it > 0 } ?: repo.duration(e.audio)
     val finished = isFinished(position, duration)
@@ -483,6 +542,7 @@ private fun formatTime(ms: Long): String { val s = TimeUnit.MILLISECONDS.toSecon
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPlay, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = PlayGreen, contentColor = Color(0xFF182512))) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(5.dp)); Text(if (position > 0 && !finished) { if (fa) "ادامه" else "Resume" } else { if (fa) "پخش" else "Play" }) }
             IconButton(onClick = onQueue, enabled = !queued) { Icon(if (queued) Icons.Default.CheckCircle else Icons.Default.PlaylistAdd, if (fa) "افزودن به صف" else "Add to queue", tint = if (queued) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
+            IconButton(onClick = onPlaylist) { Icon(Icons.Default.LibraryAdd, if (fa) "افزودن به پلی‌لیست" else "Add to playlist") }
             IconButton(onClick = onDownload, enabled = status == 0 || status == DownloadManager.STATUS_FAILED) { Icon(if (status == DownloadManager.STATUS_SUCCESSFUL) Icons.Default.CheckCircle else Icons.Default.Download, if (fa) "دانلود" else "Download", tint = if (status == DownloadManager.STATUS_SUCCESSFUL) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     } }
