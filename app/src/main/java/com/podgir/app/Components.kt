@@ -182,3 +182,13 @@ import kotlinx.coroutines.delay
     }
     if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text(if (fa) "حذف دانلودهای کامل؟" else "Remove completed downloads?") }, text = { Text(if (fa) "فایل‌های دانلودشده از دستگاه حذف می‌شوند؛ اشتراک‌ها و تاریخچه باقی می‌مانند. فایل در حال پخش نیز ممکن است حذف شود." else "Downloaded files will be removed from this device. Follows and history stay. The currently playing file may also be removed.") }, confirmButton = { TextButton(onClick = { episodes.filter { repo.downloadStatus(it) == DownloadManager.STATUS_SUCCESSFUL }.forEach { repo.removeDownload(it) }; confirm = false; onChanged() }) { Text(if (fa) "حذف فایل‌ها" else "Remove files") } }, dismissButton = { TextButton(onClick = { confirm = false }) { Text(if (fa) "انصراف" else "Cancel") } })
 }
+
+@Composable fun SortMenu(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { expanded = true }) { Icon(Icons.Default.Sort, null); Spacer(Modifier.width(6.dp)); Text(options[selected]) }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEachIndexed { i, text -> DropdownMenuItem(text = { Text(text) }, onClick = { expanded = false; onSelect(i) }, trailingIcon = { if (i == selected) Icon(Icons.Default.Check, null) }) }
+        }
+    }
+}

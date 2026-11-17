@@ -55,7 +55,7 @@ private fun clock(ms: Long): String { val s = TimeUnit.MILLISECONDS.toSeconds(ms
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long, duration: Long, speed: Float, sleepMinutes: Int, queue: List<Episode>, onClose: () -> Unit, onToggle: () -> Unit, onSeek: (Long) -> Unit, onSpeed: () -> Unit, onSleep: () -> Unit, rewindSeconds: Int, forwardSeconds: Int, favorite: Boolean, downloadStatus: Int, onFavorite: () -> Unit, onDownload: () -> Unit, onBookmark: (Long, String) -> Unit, onShare: () -> Unit, onPrevious: () -> Unit, onSkip: () -> Unit, onRemove: (Episode) -> Unit, onMove: (Int, Int) -> Unit) {
+fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long, duration: Long, speed: Float, sleepMinutes: Int, queue: List<Episode>, nextAvailable: Boolean, onClose: () -> Unit, onToggle: () -> Unit, onSeek: (Long) -> Unit, onSpeed: () -> Unit, onSleep: () -> Unit, rewindSeconds: Int, forwardSeconds: Int, favorite: Boolean, downloadStatus: Int, onFavorite: () -> Unit, onDownload: () -> Unit, onBookmark: (Long, String) -> Unit, onShare: () -> Unit, onPrevious: () -> Unit, onSkip: () -> Unit, onRemove: (Episode) -> Unit, onMove: (Int, Int) -> Unit) {
     var showQueue by remember { mutableStateOf(false) }
     var timedPage by remember { mutableIntStateOf(0) }
     var showBookmark by remember { mutableStateOf(false) }
@@ -129,7 +129,7 @@ fun PlayerScreen(episode: Episode, fa: Boolean, playing: Boolean, position: Long
                                     SkipButton(seconds = rewindSeconds, backwards = true, description = if (fa) "$rewindSeconds ثانیه عقب" else "Back $rewindSeconds seconds") { onSeek((position - rewindSeconds * 1000L).coerceAtLeast(0)) }
                                     Surface(onClick = onToggle, color = PlayerAccent, shape = CircleShape, modifier = Modifier.size(64.dp)) { Box(contentAlignment = Alignment.Center) { Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) { if (fa) "توقف" else "Pause" } else { if (fa) "پخش" else "Play" }, tint = Ink, modifier = Modifier.size(36.dp)) } }
                                     SkipButton(seconds = forwardSeconds, backwards = false, description = if (fa) "$forwardSeconds ثانیه جلو" else "Forward $forwardSeconds seconds") { onSeek(position + forwardSeconds * 1000L) }
-                                    IconButton(onClick = onSkip, enabled = queue.isNotEmpty()) { Icon(Icons.Default.SkipNext, if (fa) "قسمت بعدی" else "Next episode", tint = if (queue.isEmpty()) Color.White.copy(.3f) else Color.White, modifier = Modifier.size(30.dp)) }
+                                    IconButton(onClick = onSkip, enabled = nextAvailable) { Icon(Icons.Default.SkipNext, if (fa) "قسمت بعدی" else "Next episode", tint = if (!nextAvailable) Color.White.copy(.3f) else Color.White, modifier = Modifier.size(30.dp)) }
                                 }
                             }
                             Spacer(Modifier.height(12.dp))

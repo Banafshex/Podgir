@@ -47,6 +47,8 @@ class Repository(private val context: Context) {
     fun clearHistory() { history().forEach { prefs.edit().remove("pos:${it.audio}").remove("duration:${it.audio}").apply() }; prefs.edit().remove("history").apply() }
     fun duration(url: String) = prefs.getLong("duration:$url", 0)
     fun saveDuration(url: String, value: Long) { if (value > 0) prefs.edit().putLong("duration:$url", value).apply() }
+    fun sortOldest(feed: String) = boolean("sortOldest:$feed", false)
+    fun setSortOldest(feed: String, oldest: Boolean) = setBoolean("sortOldest:$feed", oldest)
     fun position(url: String) = prefs.getLong("pos:$url", 0)
     fun savePosition(url: String, pos: Long) { prefs.edit().putLong("pos:$url", pos).apply() }
     private fun array(key: String): JSONArray = try { JSONArray(prefs.getString(key, "[]")) } catch (_: Exception) { JSONArray() }
