@@ -21,6 +21,7 @@ class PlaybackService : MediaSessionService() {
         val player = ExoPlayer.Builder(this).build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_SPEECH).build(), true)
             setHandleAudioBecomingNoisy(true)
+            setSkipSilenceEnabled(Repository(applicationContext).boolean("skipSilence", false))
             setPauseAtEndOfMediaItems(!Repository(applicationContext).boolean("autoplay", true))
             setPlaybackSpeed((Repository(applicationContext).long("defaultSpeed", 100) / 100f).coerceIn(.5f, 3f))
         }
@@ -60,6 +61,9 @@ class PlaybackService : MediaSessionService() {
         session = MediaSession.Builder(this, player).build()
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "com.podgir.app.SKIP_SILENCE") {
+            (session?.player as? ExoPlayer)?.setSkipSilenceEnabled(Repository(applicationContext).boolean("skipSilence", false))
+        }
         if (intent?.action == "com.podgir.app.AUTOPLAY") {
             (session?.player as? ExoPlayer)?.setPauseAtEndOfMediaItems(!Repository(applicationContext).boolean("autoplay", true))
         }

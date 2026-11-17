@@ -1,11 +1,11 @@
 name: Android build
 on:
   push:
-    branches: ['main', 'arena/e3e9028e-podgir']
+    branches: ['main', 'arena/05d0771d-podgir']
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish signed version 1.2.0 to GitHub Releases'
+        description: 'Publish signed version 1.3.0 to GitHub Releases'
         type: boolean
         required: true
         default: false
@@ -37,6 +37,21 @@ jobs:
                   lines.append((failure.get('message') or '') + ' ' + (failure.text or '')[:1000])
           print('::error::' + '%0A'.join(lines[:35]).replace('%', '%25').replace('%250A', '%0A'))
           PYCODE
+      - name: Check Apple chart integration
+        run: |
+          python3 - <<'PYCODE'
+          import json, urllib.request
+          def get(url):
+              req = urllib.request.Request(url, headers={'User-Agent': 'Podgir/1.0 (Android podcast player)'})
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  return json.load(response)
+          for genre in ('', '/genre=1303'):
+              entries = get('https://itunes.apple.com/us/rss/toppodcasts/limit=100' + genre + '/json')['feed']['entry']
+              ids = [e['id']['attributes']['im:id'] for e in entries]
+              assert ids and all(i.isdigit() for i in ids)
+              lookup = get('https://itunes.apple.com/lookup?entity=podcast&id=' + ','.join(ids))['results']
+              assert any(x.get('feedUrl', '').startswith('https://') for x in lookup), 'No usable HTTPS feeds'
+          PYCODE
       - name: Test release signing with a disposable key
         run: |
           set -eu
@@ -54,7 +69,7 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
   publish:
-    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/arena/e3e9028e-podgir'
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/arena/05d0771d-podgir'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -95,12 +110,12 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK" | tee signing-verification.txt
           # This is the public certificate fingerprint of the existing v1.0.0 release.
           grep -i 'certificate SHA-256 digest: 73c27b0d5c2922488efe56565c2da64369158a7878d1d1f6f2b7f547f91f032e' signing-verification.txt || { echo '::error::Signing certificate does not match v1.0.0.'; exit 1; }
-          cp "$APK" Podgir-1.2.0.apk
+          cp "$APK" Podgir-1.3.0.apk
       - name: Keep verified APK as a temporary artifact
         uses: actions/upload-artifact@v4
         with:
           name: podgir-signed-release
-          path: Podgir-1.2.0.apk
+          path: Podgir-1.3.0.apk
           retention-days: 7
           if-no-files-found: error
       - name: Publish GitHub release
@@ -108,7 +123,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
-          printf '%s\n' '## پادگیر ۱.۲.۰' '' 'بهبود جست‌وجوی فارسی، پشتیبان‌گیری از صف و پاک‌سازی دانلودهای شنیده‌شده. برای اندروید ۷ و بالاتر.' '' 'این انتشار به حساب یا سرور اختصاصی نیاز ندارد. نتیجهٔ بیلد و تست‌های خودکار موفق بوده است؛ عملکرد روی همهٔ دستگاه‌ها تضمین نشده است.' '' 'قبل از حذف نسخهٔ آزمایشی قبلی، از کتابخانه پشتیبان بگیرید؛ نصب مستقیم روی بیلدهای دیباگ ممکن است به‌دلیل تفاوت امضا ممکن نباشد.' '' '### امضای فایل' '```' > release-notes.md
+          printf '%s\n' '## پادگیر ۱.۳.۰' '' 'دسته‌بندی و تاریخچهٔ جست‌وجو، پلی‌لیست محلی و گزینهٔ حذف سکوت. برای اندروید ۷ و بالاتر.' '' 'این انتشار به حساب یا سرور اختصاصی نیاز ندارد. نتیجهٔ بیلد و تست‌های خودکار موفق بوده است؛ عملکرد روی همهٔ دستگاه‌ها تضمین نشده است.' '' 'قبل از حذف نسخهٔ آزمایشی قبلی، از کتابخانه پشتیبان بگیرید؛ نصب مستقیم روی بیلدهای دیباگ ممکن است به‌دلیل تفاوت امضا ممکن نباشد.' '' '### امضای فایل' '```' > release-notes.md
           if grep -i 'certificate SHA-256 digest:' signing-verification.txt >> release-notes.md; then
             echo 'Certificate fingerprint included in release notes.'
           else
@@ -116,7 +131,7 @@ jobs:
             exit 1
           fi
           printf '%s\n' '```' >> release-notes.md
-          if ! gh release create v1.2.0 Podgir-1.2.0.apk --target "$GITHUB_SHA" --title 'پادگیر | Podgir 1.2.0' --notes-file release-notes.md > release-result.txt 2>&1; then
+          if ! gh release create v1.3.0 Podgir-1.3.0.apk --target "$GITHUB_SHA" --title 'پادگیر | Podgir 1.3.0' --notes-file release-notes.md > release-result.txt 2>&1; then
             echo "::error::$(tr '\n' ' ' < release-result.txt)"
             exit 1
           fi

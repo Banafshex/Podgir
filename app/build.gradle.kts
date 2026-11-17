@@ -7,7 +7,7 @@ plugins {
 android {
     namespace = "com.podgir.app"
     compileSdk = 35
-    defaultConfig { applicationId = "com.podgir.app"; minSdk = 24; targetSdk = 35; versionCode = 3; versionName = "1.2.0" }
+    defaultConfig { applicationId = "com.podgir.app"; minSdk = 24; targetSdk = 35; versionCode = 4; versionName = "1.3.0" }
     // Signing material is supplied only by the release environment, never stored in Git.
     val keystorePath = providers.environmentVariable("PODGIR_KEYSTORE_PATH").orNull
     val keystorePassword = providers.environmentVariable("PODGIR_KEYSTORE_PASSWORD").orNull
