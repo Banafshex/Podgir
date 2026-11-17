@@ -100,12 +100,14 @@ fun PodgirApp(player: MediaController?) {
             var recommendations by remember { mutableStateOf<List<Podcast>>(emptyList()) }
             var chartLoading by remember { mutableStateOf(false) }
             var chartError by remember { mutableStateOf(false) }
+            var chartRetry by remember { mutableIntStateOf(0) }
             var category by remember { mutableStateOf<PodcastCategory?>(null) }
             var categoryQuery by remember { mutableStateOf("") }
             var recentSearches by remember { mutableStateOf(repo.searchHistory()) }
             var searchFocused by remember { mutableStateOf(false) }
             var playlists by remember { mutableStateOf(repo.playlists()) }
             var playlistId by remember { mutableStateOf<String?>(null) }
+            var deletePlaylist by remember { mutableStateOf<Playlist?>(null) }
             var showNewPlaylist by remember { mutableStateOf(false) }
             var newPlaylistName by remember { mutableStateOf("") }
             var addEpisode by remember { mutableStateOf<Episode?>(null) }
@@ -291,7 +293,7 @@ fun PodgirApp(player: MediaController?) {
                 }
             }
             LaunchedEffect(Unit) { delay(1500); checkUpdate(false) }
-            LaunchedEffect(category) {
+            LaunchedEffect(category, chartRetry) {
                 chartLoading = true; chartError = false; recommendations = emptyList()
                 try { recommendations = repo.chart(category?.id) }
                 catch (ex: kotlinx.coroutines.CancellationException) { throw ex }
@@ -299,7 +301,7 @@ fun PodgirApp(player: MediaController?) {
                 finally { chartLoading = false }
             }
             LaunchedEffect(query, category, tab) {
-                if (tab == 1 && category == null && query.trim().length >= 3 && !query.startsWith("https://", true)) { delay(450); search(query.trim(), false) }
+                if (tab == 1 && category == null && query.trim().length >= 3 && !query.startsWith("https://", true)) { request?.cancel(); results = emptyList(); loading = true; error = ""; delay(450); search(query.trim(), false) }
                 else if (category == null && query.trim().length < 3) { request?.cancel(); results = emptyList(); loading = false; error = "" }
             }
             LaunchedEffect(player) {
@@ -342,7 +344,7 @@ fun PodgirApp(player: MediaController?) {
                         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { if (playlistId != null) playlistId = null else showPlaylists = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("بازگشت", "Back")) }; Text(list?.name ?: t("پلی‌لیست‌ها", "Playlists"), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (list == null) IconButton(onClick = { newPlaylistName = ""; showNewPlaylist = true }) { Icon(Icons.Default.Add, t("پلی‌لیست جدید", "New playlist")) } } }
                         if (list == null) {
                             if (playlists.isEmpty()) item { Message(t("با دکمهٔ + یک پلی‌لیست بسازید.", "Create a playlist with the + button.")) }
-                            items(playlists, key = { it.id }) { pl -> Row(verticalAlignment = Alignment.CenterVertically) { Text(pl.name + " · " + pl.episodes.size, Modifier.weight(1f).clickable { playlistId = pl.id }.padding(16.dp)); IconButton(onClick = { playlists = playlists.filterNot { it.id == pl.id }; repo.savePlaylists(playlists) }) { Icon(Icons.Default.DeleteOutline, t("حذف پلی‌لیست", "Delete playlist")) } } }
+                            items(playlists, key = { it.id }) { pl -> Row(verticalAlignment = Alignment.CenterVertically) { Text(pl.name + " · " + pl.episodes.size, Modifier.weight(1f).clickable { playlistId = pl.id }.padding(16.dp)); IconButton(onClick = { deletePlaylist = pl }) { Icon(Icons.Default.DeleteOutline, t("حذف پلی‌لیست", "Delete playlist")) } } }
                         } else {
                             if (list.episodes.isEmpty()) item { Message(t("از کارت هر قسمت آن را به پلی‌لیست اضافه کنید.", "Add episodes from their cards.")) }
                             items(list.episodes, key = { it.audio }) { e -> Row(verticalAlignment = Alignment.CenterVertically) { Text(e.title, Modifier.weight(1f).clickable { play(e, list.episodes) }.padding(16.dp)); IconButton(onClick = { playlists = playlists.map { if (it.id == list.id) it.copy(episodes = it.episodes.filterNot { ep -> ep.audio == e.audio }) else it }; repo.savePlaylists(playlists) }) { Icon(Icons.Default.Close, t("حذف از پلی‌لیست", "Remove from playlist")) } } }
@@ -413,12 +415,16 @@ fun PodgirApp(player: MediaController?) {
                                 if (error.isNotEmpty()) item { Message(error) }
                                 if (!loading && error.isEmpty() && results.isEmpty()) item { Message(t("نتیجه‌ای پیدا نشد.", "No podcasts found.")) }
                                 items(results, key = { "result:" + it.feed }) { p -> PodcastRow(p) { rememberSearch(query); open(p) } }
+                                if (episodeSearchLoading || episodeSearchDone) item { SectionTitle(t("قسمت‌های دنبال‌شده", "Episodes from followed podcasts"), "${episodeResults.size}") }
+                                if (episodeSearchLoading) item { Loading() }
+                                if (episodeSearchDone && episodeSearchErrors > 0) item { Message(t("$episodeSearchErrors فید در دسترس نبود؛ نتایج ممکن است ناقص باشند.", "$episodeSearchErrors feeds could not be loaded; results may be incomplete.")) }
+                                items(episodeResults, key = { "search:" + it.audio }) { e -> EpisodeCard(e, fa, repo, onPlay = { play(e) }, onQueue = { if (current?.audio != e.audio && queue.none { it.audio == e.audio }) setQueue(queue + e) }, queued = queue.any { it.audio == e.audio }, onPlaylist = { addEpisode = e }, onDownload = { runCatching { repo.download(e) }.onFailure { error = t("دانلود شروع نشد.", "Could not start download.") }; downloads = repo.downloads() }) }
                             }
                             if (category != null || query.trim().length < 3) {
                                 item { SectionTitle(if (category == null) t("پیشنهادها", "Suggestions") else t("جدول این دسته", "Category chart"), "") }
                                 item { Text(t("ترتیب جدول Apple Podcasts در آمریکا است، نه تعداد شنونده یا دنبال‌کننده.", "Apple Podcasts US chart order, not listener or follower counts."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                 if (chartLoading) item { Loading() }
-                                if (chartError) item { Message(t("دریافت جدول ممکن نشد. اتصال اینترنت را بررسی کنید.", "Could not load chart. Check your connection.")) }
+                                if (chartError) item { Message(t("دریافت جدول ممکن نشد. اتصال اینترنت را بررسی کنید.", "Could not load chart. Check your connection.")); TextButton(onClick = { chartRetry++ }) { Text(t("تلاش دوباره", "Try again")) } }
                                 val shown = if (category == null || categoryQuery.isBlank()) recommendations else recommendations.filter { searchMatches(it.title, categoryQuery) || searchMatches(it.author, categoryQuery) }
                                 if (!chartLoading && !chartError && shown.isEmpty()) item { Message(t("نتیجه‌ای پیدا نشد.", "No results found.")) }
                                 items(shown, key = { "chart:" + it.feed }) { p -> PodcastRow(p) { open(p) } }
@@ -460,6 +466,7 @@ fun PodgirApp(player: MediaController?) {
                     }
                 }
             }
+            deletePlaylist?.let { pl -> AlertDialog(onDismissRequest = { deletePlaylist = null }, title = { Text(t("حذف پلی‌لیست؟", "Delete playlist?")) }, text = { Text(pl.name) }, confirmButton = { TextButton(onClick = { playlists = playlists.filterNot { it.id == pl.id }; repo.savePlaylists(playlists); deletePlaylist = null }) { Text(t("حذف", "Delete")) } }, dismissButton = { TextButton(onClick = { deletePlaylist = null }) { Text(t("انصراف", "Cancel")) } }) }
             if (clearSearchConfirm) AlertDialog(onDismissRequest = { clearSearchConfirm = false }, title = { Text(t("پاک کردن جست‌وجوها؟", "Clear search history?")) }, confirmButton = { TextButton(onClick = { recentSearches = emptyList(); repo.saveSearchHistory(emptyList()); clearSearchConfirm = false }) { Text(t("پاک کردن", "Clear")) } }, dismissButton = { TextButton(onClick = { clearSearchConfirm = false }) { Text(t("انصراف", "Cancel")) } })
             if (showNewPlaylist) AlertDialog(onDismissRequest = { showNewPlaylist = false }, title = { Text(t("پلی‌لیست جدید", "New playlist")) }, text = { OutlinedTextField(value = newPlaylistName, onValueChange = { newPlaylistName = it.take(100) }, singleLine = true, label = { Text(t("نام", "Name")) }) }, confirmButton = { TextButton(enabled = newPlaylistName.isNotBlank(), onClick = { playlists = playlists + Playlist(java.util.UUID.randomUUID().toString(), newPlaylistName.trim()); repo.savePlaylists(playlists); showNewPlaylist = false }) { Text(t("ساخت", "Create")) } }, dismissButton = { TextButton(onClick = { showNewPlaylist = false }) { Text(t("انصراف", "Cancel")) } })
             addEpisode?.let { e -> AlertDialog(onDismissRequest = { addEpisode = null }, title = { Text(t("افزودن به پلی‌لیست", "Add to playlist")) }, text = { Column { if (playlists.isEmpty()) Text(t("ابتدا در کتابخانه یک پلی‌لیست بسازید.", "First create a playlist in your library.")); playlists.forEach { pl -> TextButton(onClick = { playlists = playlists.map { if (it.id == pl.id) it.copy(episodes = (it.episodes + e).distinctBy { ep -> ep.audio }) else it }; repo.savePlaylists(playlists); addEpisode = null; toast(t("اضافه شد", "Added")) }) { Text(pl.name) } } } }, confirmButton = { TextButton(onClick = { addEpisode = null }) { Text(t("بستن", "Close")) } }) }
