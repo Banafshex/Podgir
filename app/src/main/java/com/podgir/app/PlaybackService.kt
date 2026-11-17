@@ -28,7 +28,10 @@ class PlaybackService : MediaSessionService() {
         player.addListener(object : Player.Listener {
             override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
                 val oldId = oldPosition.mediaItem?.mediaId
-                if (oldId != null && oldId != newPosition.mediaItem?.mediaId && oldPosition.positionMs > 0) repo.savePosition(oldId, oldPosition.positionMs)
+                if (oldId != null && oldId != newPosition.mediaItem?.mediaId && oldPosition.positionMs > 0) {
+                    val saved = if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) repo.duration(oldId).takeIf { it > 0 } ?: oldPosition.positionMs else oldPosition.positionMs
+                    repo.savePosition(oldId, saved)
+                }
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) player.currentMediaItem?.mediaId?.let { id ->
@@ -41,7 +44,7 @@ class PlaybackService : MediaSessionService() {
                 repo.saveLastEpisode(episode)
                 repo.record(episode)
                 repo.saveQueue(repo.queue().filterNot { it.audio == id })
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
                     val resume = resumePosition(repo.position(id), repo.duration(id))
                     if (resume > 0) player.seekTo(resume)
                 }

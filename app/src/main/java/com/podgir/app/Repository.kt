@@ -69,9 +69,9 @@ class Repository(private val context: Context) {
     fun setSeenEpisode(p: Podcast, url: String) { prefs.edit().putString("seen:${p.feed}", url).apply() }
     fun libraryBackup(): LibraryBackup {
         val history = history(); val favorites = favorites(); val bookmarks = bookmarks()
-        val episodes = (history + favorites + bookmarks.map { it.episode }).distinctBy { it.audio }
+        val episodes = (history + favorites + bookmarks.map { it.episode } + queue()).distinctBy { it.audio }
         val progress = episodes.map { SavedProgress(it.audio, position(it.audio), duration(it.audio)) }
-        return LibraryBackup(subscriptions(), history, favorites, bookmarks, progress)
+        return LibraryBackup(subscriptions(), history, favorites, bookmarks, progress, queue())
     }
     fun restoreLibraryBackup(data: LibraryBackup) {
         // All parsing/validation happens before this single preferences transaction.
@@ -179,8 +179,8 @@ class Repository(private val context: Context) {
             semaphore.withPermit {
                 try {
                     val feed = episodes(podcast).take(200)
-                    val matchPodcast = podcast.title.contains(query, true) || podcast.author.contains(query, true)
-                    Pair(feed.filter { matchPodcast || it.title.contains(query, true) || it.description.contains(query, true) }, false)
+                    val matchPodcast = searchMatches(podcast.title, query) || searchMatches(podcast.author, query)
+                    Pair(feed.filter { matchPodcast || searchMatches(it.title, query) || searchMatches(it.description, query) }, false)
                 } catch (e: CancellationException) { throw e } catch (_: Exception) { Pair(emptyList(), true) }
             }
         } }.awaitAll()
