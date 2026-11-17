@@ -173,15 +173,30 @@ class Repository(private val context: Context) {
     }
     suspend fun chapters(url: String): List<Chapter> = withContext(Dispatchers.IO) { parseChapters(read(url, 2 * 1024 * 1024)) }
     suspend fun transcript(url: String): List<TranscriptCue> = withContext(Dispatchers.IO) { parseTimedTranscript(read(url, 2 * 1024 * 1024)) }
-    /** Apple US chart order, not listener or follower counts. Lookup supplies RSS feeds. */
-    suspend fun chart(genre: Int? = null): List<Podcast> = withContext(Dispatchers.IO) {
-        val suffix = if (genre == null) "" else "/genre=$genre"
-        val entries = JSONObject(read("https://itunes.apple.com/us/rss/toppodcasts/limit=100$suffix/json")).getJSONObject("feed").optJSONArray("entry") ?: JSONArray()
-        val ids = (0 until entries.length()).mapNotNull { i -> entries.optJSONObject(i)?.optJSONObject("id")?.optJSONObject("attributes")?.optString("im:id")?.takeIf { it.all(Char::isDigit) && it.isNotEmpty() } }
-        if (ids.isEmpty()) return@withContext emptyList()
-        val a = JSONObject(read("https://itunes.apple.com/lookup?entity=podcast&id=" + ids.joinToString(","))).getJSONArray("results")
-        val byId = (0 until a.length()).mapNotNull { i -> val j = a.getJSONObject(i); val feed = j.optString("feedUrl"); if (!feed.startsWith("https://")) null else j.optString("collectionId") to Podcast(j.optString("collectionName"), j.optString("artistName"), j.optString("artworkUrl600", j.optString("artworkUrl100")), feed) }.toMap()
-        ids.mapNotNull { byId[it] }.distinctBy { it.feed }
+    /** Apple search relevance and genre metadata, not a popularity chart or verified language. */
+    internal suspend fun persianDiscovery(category: PodcastCategory?): List<Podcast> = withContext(Dispatchers.IO) {
+        val terms = if (category == null) listOf("پادکست فارسی", "persian podcast", "پادکست")
+                    else listOf(category.query, "پادکست فارسی", "persian podcast")
+        val found = mutableListOf<Podcast>()
+        var successful = 0
+        for (term in terms.distinct()) {
+            try {
+                val url = "https://itunes.apple.com/search?media=podcast&entity=podcast&limit=200&term=" + java.net.URLEncoder.encode(term, "UTF-8")
+                val a = JSONObject(read(url)).getJSONArray("results")
+                successful++
+                for (i in 0 until a.length()) {
+                    val j = a.getJSONObject(i)
+                    val feed = j.optString("feedUrl"); val title = j.optString("collectionName"); val author = j.optString("artistName")
+                    val genres = j.optJSONArray("genreIds")
+                    val genreMatch = category == null || j.optInt("primaryGenreId", -1) == category.id ||
+                        (genres != null && (0 until genres.length()).any { genres.optString(it) == category.id.toString() })
+                    if (feed.startsWith("https://") && genreMatch && isPersianCandidate(title, author, term))
+                        found.add(Podcast(title, author, j.optString("artworkUrl600", j.optString("artworkUrl100")), feed))
+                }
+            } catch (e: CancellationException) { throw e } catch (_: Exception) { /* other terms may still succeed */ }
+        }
+        if (successful == 0) error("Discovery unavailable")
+        found.distinctBy { it.feed }
     }
     suspend fun search(query: String): List<Podcast> = withContext(Dispatchers.IO) {
         val url = "https://itunes.apple.com/search?media=podcast&limit=40&term=" + java.net.URLEncoder.encode(query, "UTF-8")
