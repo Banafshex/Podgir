@@ -26,12 +26,25 @@ class PlaybackService : MediaSessionService() {
         }
         val repo = Repository(applicationContext)
         player.addListener(object : Player.Listener {
+            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                val oldId = oldPosition.mediaItem?.mediaId
+                if (oldId != null && oldId != newPosition.mediaItem?.mediaId && oldPosition.positionMs > 0) repo.savePosition(oldId, oldPosition.positionMs)
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) player.currentMediaItem?.mediaId?.let { id ->
+                    if (player.duration > 0) { repo.saveDuration(id, player.duration); repo.savePosition(id, player.duration) }
+                }
+            }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val id = mediaItem?.mediaId ?: return
                 val episode = (repo.queue() + repo.history()).firstOrNull { it.audio == id } ?: return
                 repo.saveLastEpisode(episode)
                 repo.record(episode)
                 repo.saveQueue(repo.queue().filterNot { it.audio == id })
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                    val resume = resumePosition(repo.position(id), repo.duration(id))
+                    if (resume > 0) player.seekTo(resume)
+                }
             }
         })
         progressTask = object : Runnable {
@@ -59,11 +72,12 @@ class PlaybackService : MediaSessionService() {
         return super.onStartCommand(intent, flags, startId)
     }
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
+    private fun repoForShutdown(id: String, position: Long, duration: Long) { val repo = Repository(applicationContext); repo.savePosition(id, position); repo.saveDuration(id, duration) }
     override fun onDestroy() {
         progressTask?.let { handler.removeCallbacks(it) }
         sleepTask?.let { handler.removeCallbacks(it) }
         Repository(applicationContext).setLong("sleepDeadline", 0)
-        session?.run { player.release(); release() }
+        session?.run { player.currentMediaItem?.mediaId?.let { id -> if (player.currentPosition > 0) repoForShutdown(id, player.currentPosition, player.duration) }; player.release(); release() }
         session = null
         super.onDestroy()
     }

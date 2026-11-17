@@ -93,6 +93,8 @@ fun PodgirApp(player: MediaController?) {
             var tab by remember { mutableStateOf(0) }
             var selected by remember { mutableStateOf<Podcast?>(null) }
             var episodes by remember { mutableStateOf<List<Episode>>(emptyList()) }
+            var oldestFirst by remember { mutableStateOf(false) }
+            var nextAvailable by remember { mutableStateOf(false) }
             var results by remember { mutableStateOf<List<Podcast>>(emptyList()) }
             var episodeResults by remember { mutableStateOf<List<Episode>>(emptyList()) }
             var episodeSearchLoading by remember { mutableStateOf(false) }
@@ -139,8 +141,26 @@ fun PodgirApp(player: MediaController?) {
             var autoFeed by remember { mutableStateOf(false) }
             val scope = rememberCoroutineScope()
             var request by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+            val updater = remember { AppUpdater(context.applicationContext) }
+            var updateInfo by remember { mutableStateOf<UpdateInfo?>(null) }
+            var showUpdate by remember { mutableStateOf(false) }
+            var updateMessage by remember { mutableStateOf("") }
+            var checkingUpdate by remember { mutableStateOf(false) }
             var pendingBackup by remember { mutableStateOf<LibraryBackup?>(null) }
             fun toast(message: String) { android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show() }
+            fun checkUpdate(manual: Boolean) {
+                if (checkingUpdate) return
+                scope.launch {
+                    checkingUpdate = true
+                    try {
+                        val found = updater.latest()
+                        if (found != null) { updateInfo = found; showUpdate = true }
+                        else if (manual) { updateInfo = null; updateMessage = t("برنامه به‌روز است.", "Podgir is up to date."); showUpdate = true }
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (_: Exception) { if (manual) { updateInfo = null; updateMessage = t("بررسی ممکن نشد؛ اینترنت را بررسی کنید.", "Could not check for updates; check your connection."); showUpdate = true } }
+                    finally { checkingUpdate = false }
+                }
+            }
             val importOpml = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                 if (uri != null) scope.launch {
                     try {
@@ -213,7 +233,7 @@ fun PodgirApp(player: MediaController?) {
                     }
                 }
             }
-            fun open(p: Podcast) { request?.cancel(); episodeSearchLoading = false; autoFeed = repo.autoDownload(p); selected = p; episodes = emptyList(); request = scope.launch { loading = true; error = ""; try { episodes = repo.episodes(p) } catch (ex: Exception) { if (ex is kotlinx.coroutines.CancellationException) throw ex; error = t("دریافت قسمت‌ها ممکن نشد.", "Could not load episodes.") }; loading = false } }
+            fun open(p: Podcast) { request?.cancel(); episodeSearchLoading = false; oldestFirst = repo.sortOldest(p.feed); autoFeed = repo.autoDownload(p); selected = p; episodes = emptyList(); request = scope.launch { loading = true; error = ""; try { episodes = repo.episodes(p) } catch (ex: Exception) { if (ex is kotlinx.coroutines.CancellationException) throw ex; error = t("دریافت قسمت‌ها ممکن نشد.", "Could not load episodes.") }; loading = false } }
             fun item(e: Episode): MediaItem {
                 val metadata = MediaMetadata.Builder().setTitle(e.title).setArtist(e.podcast).setArtworkUri(android.net.Uri.parse(e.image)).build()
                 return MediaItem.Builder().setUri(repo.playbackUri(e)).setMediaId(e.audio).setMediaMetadata(metadata).build()
@@ -226,36 +246,45 @@ fun PodgirApp(player: MediaController?) {
                     if (list.isNotEmpty()) player.addMediaItems(list.map { item(it) })
                 }
             }
-            fun play(e: Episode) {
+            fun play(e: Episode, order: List<Episode>? = null) {
                 if (player == null) return
-                current?.let { repo.savePosition(it.audio, player.currentPosition) }
-                queue = queue.filterNot { it.audio == e.audio }; repo.saveQueue(queue)
-                current = e; repo.saveLastEpisode(e); repo.record(e); history = repo.history()
-                player.setMediaItems(listOf(item(e)) + queue.map { item(it) })
-                player.prepare(); player.seekTo(repo.position(e.audio)); player.play()
+                val same = player.currentMediaItem?.mediaId == e.audio
+                if (same && order == null) {
+                    if (isFinished(player.currentPosition, player.duration)) player.seekTo(0)
+                    player.play(); return
+                }
+                val before = player.currentMediaItem?.mediaId
+                if (before != null && player.currentPosition > 0) { repo.savePosition(before, player.currentPosition); repo.saveDuration(before, player.duration) }
+                val start = if (same) resumePosition(player.currentPosition, player.duration) else resumePosition(repo.position(e.audio), repo.duration(e.audio))
+                queue = if (order != null) episodesAfter(order, e.audio) else queue.filterNot { it.audio == e.audio }
+                repo.saveQueue(queue)
+                current = e; position = start; duration = repo.duration(e.audio); repo.saveLastEpisode(e); repo.record(e); history = repo.history()
+                player.setMediaItems(listOf(item(e)) + queue.map { item(it) }, 0, start)
+                player.prepare(); player.play()
             }
             LaunchedEffect(player) {
                 val e = current
                 if (player != null) speed = player.playbackParameters.speed
                 if (player != null && e != null && player.currentMediaItem == null) {
-                    player.setMediaItems(listOf(item(e)) + queue.map { item(it) })
-                    player.prepare(); player.seekTo(repo.position(e.audio))
+                    player.setMediaItems(listOf(item(e)) + queue.map { item(it) }, 0, resumePosition(repo.position(e.audio), repo.duration(e.audio)))
+                    player.prepare()
                 }
             }
-            LaunchedEffect(Unit) { search("پادکست فارسی", false) }
+            LaunchedEffect(Unit) { search("پادکست فارسی", false); delay(1500); checkUpdate(false) }
             LaunchedEffect(player) {
                 while (true) {
                     if (player != null) {
                         val active = repo.lastEpisode()
                         if (active != null && player.currentMediaItem?.mediaId == active.audio && active.audio != current?.audio) current = active
                         queue = repo.queue(); history = repo.history(); downloads = repo.downloads(); currentDownloadStatus = current?.let { repo.downloadStatus(it) } ?: 0
-                        playing = player.isPlaying; position = player.currentPosition.coerceAtLeast(0); duration = player.duration.coerceAtLeast(0)
-                        current?.let { if (position > 0) { repo.savePosition(it.audio, position); repo.saveDuration(it.audio, duration) } }
+                        playing = player.isPlaying; position = player.currentPosition.coerceAtLeast(0); duration = player.duration.coerceAtLeast(0); nextAvailable = player.hasNextMediaItem()
+                        current?.let { if (position > 0 && player.currentMediaItem?.mediaId == it.audio) { repo.savePosition(it.audio, position); repo.saveDuration(it.audio, duration) } }
                         if (repo.long("sleepDeadline") == 0L) sleepMinutes = 0
                     }
                     delay(1000)
                 }
             }
+            val orderedEpisodes = remember(episodes, oldestFirst) { sortedEpisodes(episodes, oldestFirst) }
             Scaffold(modifier = Modifier.fillMaxSize().background(colors.background).statusBarsPadding(), containerColor = MaterialTheme.colorScheme.background, bottomBar = {
                 Column {
                     AnimatedVisibility(visible = current != null) {
@@ -300,11 +329,15 @@ fun PodgirApp(player: MediaController?) {
                         item { Row(verticalAlignment = Alignment.CenterVertically) { Cover(detail.image, 112); Spacer(Modifier.width(18.dp)); Column { Text(detail.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold); Spacer(Modifier.height(6.dp)); Text(detail.author, color = MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.height(12.dp)); Button(onClick = { val wasFollowing = subscriptions.any { it.feed == detail.feed }; repo.toggle(detail); subscriptions = repo.subscriptions(); if (!wasFollowing && episodes.isNotEmpty()) repo.setSeenEpisode(detail, episodes.first().audio); autoFeed = repo.autoDownload(detail) }, shape = RoundedCornerShape(14.dp)) { Text(if (subscriptions.any { it.feed == detail.feed }) t("دنبال می‌کنید ✓", "Following ✓") else t("دنبال کردن +", "Follow +")) } } } }
                         if (subscriptions.any { it.feed == detail.feed }) item { SettingRow(t("دانلود خودکار قسمت‌های جدید", "Automatically download new episodes"), t("بررسی دوره‌ای؛ حداکثر ۳ قسمت جدید در هر نوبت", "Periodic check; up to 3 new episodes per check"), autoFeed) { autoFeed = it; repo.setAutoDownload(detail, it) } }
                         item { OutlinedButton(onClick = { infoPodcast = detail }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Icon(Icons.Default.Info, null); Spacer(Modifier.width(8.dp)); Text(t("دربارهٔ پادکست", "About this podcast")) } }
-                        item { SectionTitle(t("قسمت‌ها", "Episodes"), "${episodes.size}") }
+                        item { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(t("قسمت‌ها", "Episodes"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            val choices = listOf(t("جدیدترین", "Newest first"), t("قدیمی‌ترین", "Oldest first"))
+                            SortMenu(choices, if (oldestFirst) 1 else 0) { i -> oldestFirst = i == 1; repo.setSortOldest(detail.feed, oldestFirst) }
+                        } }
                         if (loading) item { Loading() }
                         if (error.isNotEmpty()) item { Message(error) }
                         if (!loading && error.isEmpty() && episodes.isEmpty()) item { Message(t("قسمتی پیدا نشد.", "No episodes found.")) }
-                        items(episodes, key = { it.audio }) { e -> EpisodeCard(e, fa, repo, onPlay = { play(e) }, onQueue = { if (current?.audio != e.audio && queue.none { it.audio == e.audio }) setQueue(queue + e) }, queued = queue.any { it.audio == e.audio }, onDownload = { runCatching { repo.download(e) }.onFailure { error = t("دانلود شروع نشد.", "Could not start download.") }; downloads = repo.downloads() }) }
+                        items(orderedEpisodes, key = { it.audio }) { e -> EpisodeCard(e, fa, repo, livePosition = if (current?.audio == e.audio) position else null, liveDuration = if (current?.audio == e.audio) duration else null, onPlay = { play(e, orderedEpisodes) }, onQueue = { if (current?.audio != e.audio && queue.none { it.audio == e.audio }) setQueue(queue + e) }, queued = queue.any { it.audio == e.audio }, onDownload = { runCatching { repo.download(e) }.onFailure { error = t("دانلود شروع نشد.", "Could not start download.") }; downloads = repo.downloads() }) }
                     } else when (tab) {
                         0 -> {
                             item { Header(fa) }
@@ -361,6 +394,7 @@ fun PodgirApp(player: MediaController?) {
                             item { SettingRow(t("اعلان قسمت جدید", "New episode notifications"), t("برای پادکست‌های دنبال‌شده", "For followed podcasts"), notifyNew) { notifyNew = it; repo.setBoolean("newEpisodeNotifications", it) } }
                             item { SettingRow(t("یادآور شنیدن", "Listening reminder"), t("تقریباً روزانه؛ زمان دقیق وابسته به اندروید", "Approximately daily; timing depends on Android"), reminder) { reminder = it; repo.setBoolean("listeningReminder", it); ReminderWorker.configure(context, it) } }
                             if ((notifyNew || reminder) && !notificationsAllowed) item { Column { Message(t("اعلان‌های پادگیر در تنظیمات اندروید غیرفعال‌اند.", "Podgir notifications are disabled in Android settings.")); TextButton(onClick = { val intent = if (Build.VERSION.SDK_INT >= 26) android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName) else android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + context.packageName)); context.startActivity(intent) }) { Text(t("تنظیمات اعلان", "Notification settings")) } } }
+                            item { SavedEntry(t("به‌روزرسانی برنامه", "App updates"), if (checkingUpdate) t("در حال بررسی…", "Checking…") else t("بررسی نسخهٔ جدید", "Check for a new version"), Icons.Default.SystemUpdate) { checkUpdate(true) } }
                             item { SavedEntry(t("تنظیمات دانلود", "Download settings"), t("شبکه، محل ذخیره و کیفیت", "Network, location and quality"), Icons.Default.Download) { downloadSettingsPage = true } }
                             item { val values = (2..12).map { it * 25 }; OptionSetting(t("سرعت پیش‌فرض", "Default speed"), "${defaultSpeed / 100f}×", values.map { "${it / 100f}×" }) { i -> defaultSpeed = values[i]; repo.setLong("defaultSpeed", defaultSpeed.toLong()); speed = defaultSpeed / 100f; player?.setPlaybackSpeed(speed) } }
                             item { val values = listOf(5, 10, 15, 20, 30, 45, 60); OptionSetting(t("پرش به عقب", "Skip backward"), "$rewindSeconds s", values.map { "$it s" }) { i -> rewindSeconds = values[i]; repo.setLong("rewindSeconds", rewindSeconds.toLong()) } }
@@ -370,9 +404,10 @@ fun PodgirApp(player: MediaController?) {
                     }
                 }
             }
+            if (showUpdate) UpdateDialog(updateInfo, updateMessage, fa, updater) { val wasAvailable = updateInfo != null; showUpdate = false; if (wasAvailable) toast(t("بعداً از تنظیمات ← به‌روزرسانی برنامه می‌توانید نصب کنید.", "You can update later from Settings → App updates.")) }
             infoPodcast?.let { p -> PodcastInfoDialog(p, fa, repo) { infoPodcast = null } }
             if (expanded && current != null) PlayerScreen(
-                episode = current!!, fa = fa, playing = playing, position = position, duration = duration, speed = speed, sleepMinutes = sleepMinutes, queue = queue,
+                episode = current!!, fa = fa, playing = playing, position = position, duration = duration, speed = speed, sleepMinutes = sleepMinutes, queue = queue, nextAvailable = nextAvailable,
                 rewindSeconds = rewindSeconds, forwardSeconds = forwardSeconds, favorite = favorites.any { it.audio == current?.audio }, downloadStatus = currentDownloadStatus,
                 onFavorite = { current?.let { repo.toggleFavorite(it); favorites = repo.favorites() } },
                 onBookmark = { at, note -> current?.let { repo.addBookmark(it, at, note); bookmarks = repo.bookmarks(); android.widget.Toast.makeText(context, t("لحظه ذخیره شد", "Moment saved"), android.widget.Toast.LENGTH_SHORT).show() } },
@@ -434,14 +469,19 @@ private fun formatTime(ms: Long): String { val s = TimeUnit.MILLISECONDS.toSecon
 }
 @Composable private fun SectionTitle(title: String, extra: String) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold); Text(extra, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) } }
 @Composable private fun PodcastRow(p: Podcast, onClick: () -> Unit) { Surface(onClick = onClick, shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface) { Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Cover(p.image, 68); Spacer(Modifier.width(14.dp)); Column(Modifier.weight(1f)) { Text(p.title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis); Spacer(Modifier.height(4.dp)); Text(p.author, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }; Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.primary) } } }
-@Composable private fun EpisodeCard(e: Episode, fa: Boolean, repo: Repository, onPlay: () -> Unit, onQueue: () -> Unit, queued: Boolean, onDownload: () -> Unit) {
+@Composable private fun EpisodeCard(e: Episode, fa: Boolean, repo: Repository, livePosition: Long? = null, liveDuration: Long? = null, onPlay: () -> Unit, onQueue: () -> Unit, queued: Boolean, onDownload: () -> Unit) {
+    val position = livePosition ?: repo.position(e.audio)
+    val duration = (liveDuration ?: 0).takeIf { it > 0 } ?: repo.duration(e.audio)
+    val finished = isFinished(position, duration)
+    val progress = progressPercent(position, duration)
     var status by remember(e.audio) { mutableIntStateOf(repo.downloadStatus(e)) }
     LaunchedEffect(e.audio) { while (true) { status = repo.downloadStatus(e); delay(2000) } }
     Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface) { Column(Modifier.padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { Cover(e.image, 54); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(e.title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis); Text(e.date, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) } }
         if (e.description.isNotBlank()) { Spacer(Modifier.height(10.dp)); Text(e.description, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (position > 0) { Spacer(Modifier.height(8.dp)); Text(if (finished) { if (fa) "تموم کردی ✓" else "Completed ✓" } else if (duration > 0) { if (fa) "$progress٪ شنیده‌شده" else "$progress% listened" } else { if (fa) "در حال شنیدن" else "In progress" }, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = onPlay, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = PlayGreen, contentColor = Color(0xFF182512))) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(5.dp)); Text(if (fa) "پخش" else "Play") }
+            Button(onClick = onPlay, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = PlayGreen, contentColor = Color(0xFF182512))) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(5.dp)); Text(if (position > 0 && !finished) { if (fa) "ادامه" else "Resume" } else { if (fa) "پخش" else "Play" }) }
             IconButton(onClick = onQueue, enabled = !queued) { Icon(if (queued) Icons.Default.CheckCircle else Icons.Default.PlaylistAdd, if (fa) "افزودن به صف" else "Add to queue", tint = if (queued) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
             IconButton(onClick = onDownload, enabled = status == 0 || status == DownloadManager.STATUS_FAILED) { Icon(if (status == DownloadManager.STATUS_SUCCESSFUL) Icons.Default.CheckCircle else Icons.Default.Download, if (fa) "دانلود" else "Download", tint = if (status == DownloadManager.STATUS_SUCCESSFUL) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) }
         }
