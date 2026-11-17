@@ -155,11 +155,12 @@ import kotlinx.coroutines.delay
     }
 }
 
-@Composable fun DownloadSummary(episodes: List<Episode>, repo: Repository, fa: Boolean, onChanged: () -> Unit) {
+@Composable fun DownloadSummary(episodes: List<Episode>, repo: Repository, fa: Boolean, currentAudio: String?, onChanged: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var count by remember { mutableIntStateOf(0) }
     var bytes by remember { mutableLongStateOf(0L) }
     var confirm by remember { mutableStateOf(false) }
+    var confirmPlayed by remember { mutableStateOf(false) }
     LaunchedEffect(episodes) {
         while (true) {
             val (n, size) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -180,6 +181,8 @@ import kotlinx.coroutines.delay
             TextButton(onClick = { confirm = true }, enabled = count > 0) { Text(if (fa) "پاک‌سازی" else "Clear") }
         }
     }
+    TextButton(onClick = { confirmPlayed = true }) { Text(if (fa) "حذف دانلودهای شنیده‌شده" else "Remove played downloads") }
+    if (confirmPlayed) AlertDialog(onDismissRequest = { confirmPlayed = false }, title = { Text(if (fa) "حذف دانلودهای شنیده‌شده؟" else "Remove played downloads?") }, text = { Text(if (fa) "فقط فایل قسمت‌های تمام‌شده حذف می‌شود؛ قسمت در حال پخش و اطلاعات شنیدن باقی می‌مانند." else "Only finished episodes’ downloaded files are removed. The current episode and listening history remain.") }, confirmButton = { TextButton(onClick = { episodes.filter { it.audio != currentAudio && repo.downloadStatus(it) == DownloadManager.STATUS_SUCCESSFUL && isFinished(repo.position(it.audio), repo.duration(it.audio)) }.forEach { repo.removeDownload(it) }; confirmPlayed = false; onChanged() }) { Text(if (fa) "حذف فایل‌ها" else "Remove files") } }, dismissButton = { TextButton(onClick = { confirmPlayed = false }) { Text(if (fa) "انصراف" else "Cancel") } })
     if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text(if (fa) "حذف دانلودهای کامل؟" else "Remove completed downloads?") }, text = { Text(if (fa) "فایل‌های دانلودشده از دستگاه حذف می‌شوند؛ اشتراک‌ها و تاریخچه باقی می‌مانند. فایل در حال پخش نیز ممکن است حذف شود." else "Downloaded files will be removed from this device. Follows and history stay. The currently playing file may also be removed.") }, confirmButton = { TextButton(onClick = { episodes.filter { repo.downloadStatus(it) == DownloadManager.STATUS_SUCCESSFUL }.forEach { repo.removeDownload(it) }; confirm = false; onChanged() }) { Text(if (fa) "حذف فایل‌ها" else "Remove files") } }, dismissButton = { TextButton(onClick = { confirm = false }) { Text(if (fa) "انصراف" else "Cancel") } })
 }
 

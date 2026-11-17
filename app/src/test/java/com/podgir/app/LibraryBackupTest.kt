@@ -23,7 +23,16 @@ class LibraryBackupTest {
         assertThrows(IllegalArgumentException::class.java) { BackupFiles.encode(bad) }
     }
     @Test fun rejectsUnsupportedVersion() {
-        val wrong = BackupFiles.encode(data).replace("\"version\":1", "\"version\":42")
+        val wrong = BackupFiles.encode(data).replace("\"version\":2", "\"version\":42")
         assertThrows(IllegalArgumentException::class.java) { BackupFiles.decode(wrong) }
+    }
+    @Test fun queueRoundTripAndOldBackupCompatibility() {
+        val withQueue = data.copy(queue = listOf(episode))
+        assertEquals(withQueue, BackupFiles.decode(BackupFiles.encode(withQueue)))
+        val old = BackupFiles.encode(data).replace("\"version\":2", "\"version\":1")
+        assertNull(BackupFiles.decode(old).queue)
+    }
+    @Test fun rejectsInvalidQueue() {
+        assertThrows(IllegalArgumentException::class.java) { BackupFiles.encode(data.copy(queue = listOf(episode.copy(audio = "http://example.org/a")))) }
     }
 }

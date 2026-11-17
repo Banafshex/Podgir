@@ -7,7 +7,7 @@ import org.json.JSONObject
 import java.net.URI
 
 data class SavedProgress(val audio: String, val position: Long, val duration: Long)
-data class LibraryBackup(val subscriptions: List<Podcast>, val history: List<Episode>, val favorites: List<Episode>, val bookmarks: List<Bookmark>, val progress: List<SavedProgress>)
+data class LibraryBackup(val subscriptions: List<Podcast>, val history: List<Episode>, val favorites: List<Episode>, val bookmarks: List<Bookmark>, val progress: List<SavedProgress>, val queue: List<Episode>? = null)
 
 /** Portable local backup of library metadata, never downloaded files or OS download IDs. */
 object BackupFiles {
@@ -16,12 +16,13 @@ object BackupFiles {
     private const val MAX_DURATION = 7L * 24 * 60 * 60 * 1000
 
     fun encode(data: LibraryBackup): String {
-        val json = JSONObject().put("format", "podgir-library").put("version", 1)
+        val json = JSONObject().put("format", "podgir-library").put("version", 2)
             .put("subscriptions", JSONArray(data.subscriptions.map { it.json() }))
             .put("history", JSONArray(data.history.map { it.json() }))
             .put("favorites", JSONArray(data.favorites.map { it.json() }))
             .put("bookmarks", JSONArray(data.bookmarks.map { it.json() }))
             .put("progress", JSONArray(data.progress.map { JSONObject().put("audio", it.audio).put("position", it.position).put("duration", it.duration) }))
+        if (data.queue != null) json.put("queue", JSONArray(data.queue.map { it.json() }))
         val text = json.toString()
         require(text.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { "Backup too large" }
         decode(text) // Never export a file this version cannot restore.
@@ -30,7 +31,7 @@ object BackupFiles {
     fun decode(text: String): LibraryBackup {
         require(text.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { "Backup too large" }
         val json = JSONObject(text)
-        require(json.optString("format") == "podgir-library" && json.optInt("version", -1) == 1) { "Unsupported backup" }
+        require(json.optString("format") == "podgir-library" && json.optInt("version", -1) in 1..2) { "Unsupported backup" }
         fun items(key: String): List<JSONObject> {
             val arr = json.getJSONArray(key); require(arr.length() <= MAX_ITEMS) { "Too many items" }
             return (0 until arr.length()).map { arr.getJSONObject(it) }
@@ -46,7 +47,8 @@ object BackupFiles {
         val favorites = items("favorites").map { validEpisode(Episode.from(it)) }.distinctBy { it.audio }
         val bookmarks = items("bookmarks").map { Bookmark.from(it) }.onEach { validEpisode(it.episode); require(it.id.isNotBlank() && it.id.length <= 128 && it.position in 0..MAX_DURATION && it.note.length <= 500) }.distinctBy { it.id }
         val progress = items("progress").map { SavedProgress(it.getString("audio"), it.getLong("position"), it.getLong("duration")) }.onEach { require(https(it.audio) && it.position in 0..MAX_DURATION && it.duration in 0..MAX_DURATION) }.distinctBy { it.audio }
-        return LibraryBackup(subscriptions, history, favorites, bookmarks, progress)
+        val queue = if (json.has("queue")) items("queue").map { validEpisode(Episode.from(it)) }.distinctBy { it.audio } else null
+        return LibraryBackup(subscriptions, history, favorites, bookmarks, progress, queue)
     }
     fun read(context: Context, uri: Uri): LibraryBackup {
         val bytes = context.contentResolver.openInputStream(uri)?.use { input ->

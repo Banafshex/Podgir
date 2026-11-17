@@ -190,19 +190,6 @@ fun PodgirApp(player: MediaController?) {
                     catch (_: Exception) { toast(t("ذخیرهٔ پشتیبان ممکن نشد.", "Could not save the backup.")) }
                 }
             }
-            pendingBackup?.let { backup ->
-                AlertDialog(onDismissRequest = { pendingBackup = null },
-                    title = { Text(t("بازیابی کتابخانه؟", "Restore library?")) },
-                    text = { Text(t("اشتراک‌ها، تاریخچه، علاقه‌مندی‌ها، یادداشت‌ها و پیشرفت فعلی جایگزین می‌شوند. دانلودها و صف حذف نمی‌شوند؛ دانلود خودکار برای اشتراک‌ها خاموش می‌شود. پخش متوقف می‌شود.", "This replaces your follows, history, favorites, notes and progress. Downloads and queue remain; automatic downloads are disabled for follows. Playback will pause.")) },
-                    confirmButton = { TextButton(onClick = {
-                        player?.pause(); repo.restoreLibraryBackup(backup)
-                        val restoredPosition = backup.progress.firstOrNull { it.audio == current?.audio }?.position
-                        if (restoredPosition != null) { player?.seekTo(restoredPosition); position = restoredPosition }
-                        subscriptions = repo.subscriptions(); history = repo.history(); favorites = repo.favorites(); bookmarks = repo.bookmarks()
-                        selected?.let { autoFeed = repo.autoDownload(it) }
-                        pendingBackup = null; toast(t("کتابخانه بازیابی شد.", "Library restored."))
-                    }) { Text(t("بازیابی", "Restore")) } }, dismissButton = { TextButton(onClick = { pendingBackup = null }) { Text(t("انصراف", "Cancel")) } })
-            }
             BackHandler {
                 if (expanded || infoPodcast != null || savedPage != 0 || historyPage || downloadsPage || downloadSettingsPage || selected != null) lastBackPress = 0L
                 when {
@@ -245,6 +232,19 @@ fun PodgirApp(player: MediaController?) {
                     if (next < player.mediaItemCount) player.removeMediaItems(next, player.mediaItemCount)
                     if (list.isNotEmpty()) player.addMediaItems(list.map { item(it) })
                 }
+            }
+            pendingBackup?.let { backup ->
+                AlertDialog(onDismissRequest = { pendingBackup = null },
+                    title = { Text(t("بازیابی کتابخانه؟", "Restore library?")) },
+                    text = { Text(if (backup.queue != null) t("اشتراک‌ها، تاریخچه، علاقه‌مندی‌ها، یادداشت‌ها، پیشرفت و صف جایگزین می‌شوند. دانلودها باقی می‌مانند؛ دانلود خودکار خاموش و پخش متوقف می‌شود.", "Follows, history, favorites, notes, progress and queue will be replaced. Downloads remain; auto-download is disabled and playback pauses.") else t("اشتراک‌ها، تاریخچه، علاقه‌مندی‌ها، یادداشت‌ها و پیشرفت جایگزین می‌شوند. دانلودها و صف باقی می‌مانند؛ دانلود خودکار خاموش و پخش متوقف می‌شود.", "Follows, history, favorites, notes and progress will be replaced. Downloads and queue remain; auto-download is disabled and playback pauses.")) },
+                    confirmButton = { TextButton(onClick = {
+                        player?.pause(); repo.restoreLibraryBackup(backup); backup.queue?.let { setQueue(it.filterNot { e -> e.audio == current?.audio }) }
+                        val restoredPosition = backup.progress.firstOrNull { it.audio == current?.audio }?.position
+                        if (restoredPosition != null) { player?.seekTo(restoredPosition); position = restoredPosition }
+                        subscriptions = repo.subscriptions(); history = repo.history(); favorites = repo.favorites(); bookmarks = repo.bookmarks()
+                        selected?.let { autoFeed = repo.autoDownload(it) }
+                        pendingBackup = null; toast(t("کتابخانه بازیابی شد.", "Library restored."))
+                    }) { Text(t("بازیابی", "Restore")) } }, dismissButton = { TextButton(onClick = { pendingBackup = null }) { Text(t("انصراف", "Cancel")) } })
             }
             fun play(e: Episode, order: List<Episode>? = null) {
                 if (player == null) return
@@ -320,7 +320,7 @@ fun PodgirApp(player: MediaController?) {
                         items(history, key = { it.audio }) { e -> HistoryEpisode(e, repo, fa) { play(e) } }
                     } else if (downloadsPage) {
                         item { Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { downloadsPage = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, t("بازگشت", "Back")) }; Column { Text(t("مدیریت دانلود", "Download manager"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold); Text(t("فایل‌های شما روی همین دستگاه", "Your files on this device"), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) } } }
-                        if (downloads.isNotEmpty()) item { DownloadSummary(downloads, repo, fa) { downloads = repo.downloads() } }
+                        if (downloads.isNotEmpty()) item { DownloadSummary(downloads, repo, fa, current?.audio) { downloads = repo.downloads() } }
                         if (downloads.isEmpty()) item { Message(t("هنوز چیزی دانلود نکرده‌اید.", "No downloads yet.")) }
                         items(downloads, key = { it.audio }) { e -> DownloadCard(e, fa, repo, onPlay = { play(e) }, onRemove = { repo.removeDownload(e); downloads = repo.downloads() }, onRetry = { runCatching { repo.download(e) }.onFailure { error = t("دانلود شروع نشد.", "Could not start download.") }; downloads = repo.downloads() }) }
                         if (error.isNotEmpty()) item { Message(error) }
@@ -380,7 +380,7 @@ fun PodgirApp(player: MediaController?) {
                             item { HistoryEntry(fa) { historyPage = true } }
                             item { SavedEntry(t("علاقه‌مندی‌ها", "Favorites"), "${favorites.size}", Icons.Default.Favorite) { savedPage = 1 } }
                             item { SavedEntry(t("لحظه‌های ذخیره‌شده", "Saved moments"), "${bookmarks.size}", Icons.Default.Bookmark) { savedPage = 2 } }
-                            item { SavedEntry(t("پشتیبان کتابخانه", "Back up library"), t("اشتراک‌ها، تاریخچه، یادداشت‌ها و پیشرفت", "Follows, history, notes and progress"), Icons.Default.Backup) { exportBackup.launch("podgir-backup.json") } }
+                            item { SavedEntry(t("پشتیبان کتابخانه", "Back up library"), t("اشتراک‌ها، تاریخچه، یادداشت‌ها، پیشرفت و صف", "Follows, history, notes, progress and queue"), Icons.Default.Backup) { exportBackup.launch("podgir-backup.json") } }
                             item { SavedEntry(t("بازیابی پشتیبان", "Restore backup"), t("از فایل پشتیبان پادگیر", "From a Podgir backup file"), Icons.Default.Restore) { importBackup.launch(arrayOf("application/json", "text/*", "application/octet-stream")) } }
                             item { SavedEntry(t("خروجی اشتراک‌ها", "Export subscriptions"), t("فایل OPML", "OPML file"), Icons.Default.FileUpload) { exportOpml.launch("podgir-subscriptions.opml") } }
                             item { SavedEntry(t("ورود اشتراک‌ها", "Import subscriptions"), t("فایل OPML با فیدهای HTTPS", "OPML file with HTTPS feeds"), Icons.Default.FileDownload) { importOpml.launch(arrayOf("text/*", "application/xml", "application/octet-stream")) } }
