@@ -295,7 +295,7 @@ fun PodgirApp(player: MediaController?) {
             LaunchedEffect(Unit) { delay(1500); checkUpdate(false) }
             LaunchedEffect(category, chartRetry) {
                 chartLoading = true; chartError = false; recommendations = emptyList()
-                try { recommendations = repo.chart(category?.id) }
+                try { recommendations = repo.persianDiscovery(category) }
                 catch (ex: kotlinx.coroutines.CancellationException) { throw ex }
                 catch (_: Exception) { chartError = true }
                 finally { chartLoading = false }
@@ -390,8 +390,8 @@ fun PodgirApp(player: MediaController?) {
                                 item { SectionTitle(t("ادامه شنیدن", "Continue listening"), "") }
                                 items(continuing, key = { "history:" + it.audio }) { e -> HistoryEpisode(e, repo, fa) { play(e) } }
                             }
-                            item { SectionTitle(t("پیشنهادها", "Discover"), t("جدول اپل آمریکا", "Apple US charts")) }
-                            item { Text(t("بر اساس رتبهٔ جدول اپل؛ تعداد شنونده یا دنبال‌کننده در دسترس نیست.", "Apple chart order; listener and follower counts are unavailable."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            item { SectionTitle(t("پیشنهادها", "Discover"), t("فارسی", "Persian")) }
+                            item { Text(t("کشف فارسی با جست‌وجوی اپل؛ ترتیب به معنی محبوبیت نیست.", "Persian discovery using Apple search; order does not indicate popularity."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             if (chartLoading) item { Loading() }
                             if (chartError) item { Message(t("دریافت پیشنهادها ممکن نشد.", "Could not load recommendations.")) }
                             if (recommendations.isNotEmpty()) item { LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) { items(recommendations.take(12), key = { it.feed }) { p -> FeaturedPodcast(p) { open(p) } } } }
@@ -407,7 +407,7 @@ fun PodgirApp(player: MediaController?) {
                             }
                             if (category == null && query.trim().length < 3 && !query.startsWith("https://")) {
                                 item { SectionTitle(t("دسته‌ها", "Categories"), "") }
-                                items(podcastCategories.chunked(3)) { row -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { row.forEach { cat -> Surface(onClick = { category = cat; categoryQuery = "" }, modifier = Modifier.weight(1f).aspectRatio(1f), shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.primaryContainer) { Box(contentAlignment = Alignment.Center) { Text(if (fa) cat.fa else cat.en, modifier = Modifier.padding(6.dp), textAlign = TextAlign.Center, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer) } } }; repeat(3 - row.size) { Spacer(Modifier.weight(1f)) } } }
+                                items(podcastCategories.chunked(3)) { row -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { row.forEach { cat -> CategoryTile(cat, fa, Modifier.weight(1f).aspectRatio(1f)) { category = cat; categoryQuery = "" } }; repeat(3 - row.size) { Spacer(Modifier.weight(1f)) } } }
                             }
                             if (category == null && query.startsWith("https://")) item { Button(onClick = { open(Podcast(query.trim(), "RSS", "", query.trim())) }) { Text(t("باز کردن RSS", "Open RSS")) } }
                             if (category == null && query.trim().length >= 3 && !query.startsWith("https://")) {
@@ -421,10 +421,10 @@ fun PodgirApp(player: MediaController?) {
                                 items(episodeResults, key = { "search:" + it.audio }) { e -> EpisodeCard(e, fa, repo, onPlay = { play(e) }, onQueue = { if (current?.audio != e.audio && queue.none { it.audio == e.audio }) setQueue(queue + e) }, queued = queue.any { it.audio == e.audio }, onPlaylist = { addEpisode = e }, onDownload = { runCatching { repo.download(e) }.onFailure { error = t("دانلود شروع نشد.", "Could not start download.") }; downloads = repo.downloads() }) }
                             }
                             if (category != null || query.trim().length < 3) {
-                                item { SectionTitle(if (category == null) t("پیشنهادها", "Suggestions") else t("جدول این دسته", "Category chart"), "") }
-                                item { Text(t("ترتیب جدول Apple Podcasts در آمریکا است، نه تعداد شنونده یا دنبال‌کننده.", "Apple Podcasts US chart order, not listener or follower counts."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                item { SectionTitle(if (category == null) t("پیشنهادها", "Suggestions") else t("پادکست‌های این دسته", "Podcasts in this category"), "") }
+                                item { Text(t("نتایج تقریبی فارسی از جست‌وجوی اپل و دسته‌بندی ناشر؛ ممکن است ناقص یا نامرتبط باشند.", "Approximate Persian results from Apple search and publisher genres; some may be missing or unrelated."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                 if (chartLoading) item { Loading() }
-                                if (chartError) item { Message(t("دریافت جدول ممکن نشد. اتصال اینترنت را بررسی کنید.", "Could not load chart. Check your connection.")); TextButton(onClick = { chartRetry++ }) { Text(t("تلاش دوباره", "Try again")) } }
+                                if (chartError) item { Message(t("دریافت پادکست‌ها ممکن نشد. اتصال اینترنت را بررسی کنید.", "Could not load podcasts. Check your connection.")); TextButton(onClick = { chartRetry++ }) { Text(t("تلاش دوباره", "Try again")) } }
                                 val shown = if (category == null || categoryQuery.isBlank()) recommendations else recommendations.filter { searchMatches(it.title, categoryQuery) || searchMatches(it.author, categoryQuery) }
                                 if (!chartLoading && !chartError && shown.isEmpty()) item { Message(t("نتیجه‌ای پیدا نشد.", "No results found.")) }
                                 items(shown, key = { "chart:" + it.feed }) { p -> PodcastRow(p) { open(p) } }
@@ -557,3 +557,29 @@ private fun formatTime(ms: Long): String { val s = TimeUnit.MILLISECONDS.toSecon
 @Composable private fun SettingRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) { Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface) { Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Bold); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }; Switch(checked = checked, onCheckedChange = onChange) } } }
 @Composable private fun Message(text: String) { Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f), modifier = Modifier.fillMaxWidth()) { Text(text, modifier = Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Start) } }
 @Composable private fun Loading() { Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp) } }
+
+/** Rich, legible offline artwork; colors and icon identify each category without network images. */
+@Composable private fun CategoryTile(category: PodcastCategory, fa: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val index = podcastCategories.indexOf(category).coerceAtLeast(0)
+    val palettes = listOf(
+        Color(0xFFED699A) to Color(0xFF7137A4), Color(0xFFF4B261) to Color(0xFF914B35),
+        Color(0xFF53C9DF) to Color(0xFF345CB2), Color(0xFFB38AF4) to Color(0xFF6940AC),
+        Color(0xFF78D5B4) to Color(0xFF327C81), Color(0xFFEA8279) to Color(0xFF943752),
+        Color(0xFFF1A87D) to Color(0xFFA05575), Color(0xFF85B4FF) to Color(0xFF5259A5),
+        Color(0xFFF3C36A) to Color(0xFF9A6D42), Color(0xFF8CDBB3) to Color(0xFF388C70),
+        Color(0xFFFF8DAB) to Color(0xFFB44085), Color(0xFF84B4D2) to Color(0xFF406887)
+    )
+    val icons = listOf(Icons.Default.Mood, Icons.Default.History, Icons.Default.Computer, Icons.Default.MenuBook,
+        Icons.Default.School, Icons.Default.Search, Icons.Default.Public, Icons.Default.Science,
+        Icons.Default.Work, Icons.Default.Favorite, Icons.Default.MusicNote, Icons.Default.Article)
+    val (bright, deep) = palettes[index % palettes.size]
+    Box(modifier.clip(RoundedCornerShape(20.dp)).background(Brush.linearGradient(listOf(bright, deep))).clickable(onClick = onClick)) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawCircle(Color.White.copy(alpha = .13f), radius = size.minDimension * .42f, center = Offset(size.width * .84f, size.height * .12f))
+            drawCircle(Color.White.copy(alpha = .08f), radius = size.minDimension * .20f, center = Offset(size.width * .06f, size.height * .60f))
+        }
+        Icon(icons[index % icons.size], contentDescription = null, tint = Color.White.copy(alpha = .94f), modifier = Modifier.align(Alignment.Center).offset(y = (-10).dp).fillMaxSize(.40f))
+        Box(Modifier.fillMaxWidth().height(58.dp).align(Alignment.BottomCenter).background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xD9151931)))))
+        Text(if (fa) category.fa else category.en, modifier = Modifier.align(Alignment.BottomStart).padding(start = 11.dp, end = 8.dp, bottom = 10.dp), color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}

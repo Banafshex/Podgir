@@ -15,4 +15,13 @@ class DiscoveryLogicTest {
         assertEquals(listOf("a"), updatedSearchHistory(listOf("a"), "https://example.org/feed"))
         assertEquals(20, updatedSearchHistory((1..30).map { "$it" }, "new").size)
     }
+    @Test fun persianCandidateIsApproximateAndExcludesUnrelatedEnglish() {
+        assertTrue(isPersianCandidate("رادیو فارسی", "تهران", "پادکست"))
+        assertTrue(isPersianCandidate("Persian stories", "Someone", "persian podcast"))
+        assertFalse(isPersianCandidate("American history", "Someone", "پادکست فارسی"))
+    }
+    @Test fun categoriesHaveUniqueIdsAndQueries() {
+        assertEquals(podcastCategories.size, podcastCategories.map { it.id }.distinct().size)
+        assertTrue(podcastCategories.all { it.query.isNotBlank() })
+    }
 }
